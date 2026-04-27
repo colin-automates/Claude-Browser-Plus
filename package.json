@@ -1,0 +1,156 @@
+{
+  "name": "claude-browser-plus",
+  "displayName": "Claude Browser Plus",
+  "description": "Live, interactive Chromium browser in a VS Code side panel, drivable by Claude Code via MCP. Pick elements, annotate localhost dev sites, and stream them back to Claude — without leaving the editor.",
+  "version": "1.0.0",
+  "publisher": "colin-automates",
+  "license": "MIT",
+  "private": true,
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/colin-automates/Claude-Browser-Plus.git"
+  },
+  "homepage": "https://github.com/colin-automates/Claude-Browser-Plus#readme",
+  "bugs": {
+    "url": "https://github.com/colin-automates/Claude-Browser-Plus/issues"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "browser",
+    "playwright",
+    "mcp",
+    "chromium",
+    "agent",
+    "automation",
+    "screenshot",
+    "ai"
+  ],
+  "engines": {
+    "vscode": "^1.106.0"
+  },
+  "categories": [
+    "Other",
+    "AI",
+    "Visualization"
+  ],
+  "main": "./out/extension.js",
+  "activationEvents": ["onStartupFinished"],
+  "contributes": {
+    "viewsContainers": {
+      "secondarySidebar": [
+        {
+          "id": "aiBrowser",
+          "title": "Claude Browser",
+          "icon": "media/icon.svg"
+        }
+      ]
+    },
+    "views": {
+      "aiBrowser": [
+        {
+          "id": "aiBrowser.panel",
+          "name": "Browser",
+          "type": "webview"
+        }
+      ]
+    },
+    "commands": [
+      {
+        "command": "aiBrowser.showPanel",
+        "title": "Claude Browser: Show Panel",
+        "icon": "$(globe)"
+      },
+      {
+        "command": "aiBrowser.openUrl",
+        "title": "Claude Browser: Open URL…"
+      },
+      {
+        "command": "aiBrowser.copyMcpCommand",
+        "title": "Claude Browser: Copy MCP Connection Command"
+      },
+      {
+        "command": "aiBrowser.rotateToken",
+        "title": "Claude Browser: Rotate Auth Token"
+      },
+      {
+        "command": "aiBrowser.resetProfile",
+        "title": "Claude Browser: Reset Project Profile"
+      },
+      {
+        "command": "aiBrowser.clearCaptures",
+        "title": "Claude Browser: Clear Captures"
+      }
+    ],
+    "menus": {
+      "editor/title": [
+        {
+          "command": "aiBrowser.showPanel",
+          "group": "navigation@99",
+          "when": "true"
+        }
+      ]
+    },
+    "keybindings": [
+      {
+        "command": "aiBrowser.showPanel",
+        "key": "ctrl+alt+b",
+        "mac": "cmd+alt+b"
+      }
+    ],
+    "configuration": {
+      "title": "Claude Browser Plus",
+      "properties": {
+        "aiBrowser.projectHosts": {
+          "type": "array",
+          "items": { "type": "string" },
+          "default": [],
+          "markdownDescription": "Hosts (e.g. `dev.mysite.test`) treated as **your own project** in addition to localhost. Annotate mode and the project badge are enabled on these hosts."
+        },
+        "aiBrowser.defaultViewport": {
+          "type": "string",
+          "enum": ["desktop", "laptop", "tablet", "mobile"],
+          "default": "desktop",
+          "markdownDescription": "Default viewport at startup. `desktop`=1440×900, `laptop`=1280×800, `tablet`=768×1024, `mobile`=375×667. Always desktop unless overridden."
+        },
+        "aiBrowser.screencastFps": {
+          "type": "number",
+          "default": 60,
+          "minimum": 5,
+          "maximum": 60,
+          "markdownDescription": "Max screencast frames per second. Lower = less CPU/bandwidth. Default 60."
+        },
+        "aiBrowser.screencastQuality": {
+          "type": "number",
+          "default": 85,
+          "minimum": 30,
+          "maximum": 95,
+          "markdownDescription": "JPEG quality for the live screencast (30–95). Higher = sharper, more bandwidth. Default 85."
+        },
+        "aiBrowser.highRes": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "When enabled, `browser_screenshot` allows up to 2576px on the long edge (Opus 4.x). Disabled = 1568px cap. Hard ceiling 8000px regardless."
+        }
+      }
+    }
+  },
+  "dependencies": {
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "playwright-core": "^1.49.0"
+  },
+  "scripts": {
+    "build": "node esbuild.mjs",
+    "watch": "node esbuild.mjs --watch",
+    "typecheck": "tsc --noEmit",
+    "package": "vsce package --out claude-browser-plus.vsix --skip-license",
+    "vscode:prepublish": "npm run build"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/vscode": "^1.106.0",
+    "@vscode/vsce": "^3.9.1",
+    "esbuild": "^0.20.0",
+    "typescript": "^5.4.0"
+  }
+}

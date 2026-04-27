@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="{{CSP}}">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <link rel="stylesheet" href="{{STYLE_URI}}">
+  <title>Claude Browser</title>
+</head>
+<body>
+  <div class="app">
+    <div class="chrome">
+      <div class="nav-row">
+        <button class="nav-btn" data-action="back" title="Back">◀</button>
+        <button class="nav-btn" data-action="forward" title="Forward">▶</button>
+        <button class="nav-btn" data-action="reload" title="Reload">⟳</button>
+        <input class="url-bar" id="url-input" type="text" placeholder="https://" spellcheck="false" autocomplete="off">
+        <span class="own-badge" id="own-badge" hidden title="This URL is your own project — annotate mode is available">★</span>
+        <button class="nav-btn nav-btn-toggle" id="control-toggle" data-state="on" title="Take Control: ON (click to release)">👤</button>
+      </div>
+      <div class="tab-strip">
+        <div class="tab tab-empty">No tabs yet</div>
+        <button class="tab-new" disabled title="New Tab">+</button>
+      </div>
+      <div class="action-bar">
+        <button class="action-btn" data-action="pick" id="pick-btn">Pick</button>
+        <button class="action-btn" data-action="annotate" id="annotate-btn" disabled title="Available on your own project (localhost / file:// / configured hosts)">Annotate</button>
+        <button class="action-btn" data-action="send" id="send-btn" disabled>Send to Claude</button>
+        <span class="action-spacer"></span>
+        <select class="viewport-select" id="viewport-select" title="Viewport preset">
+          <option value="desktop">🖥 Desktop · 1440×900</option>
+          <option value="laptop">💻 Laptop · 1280×800</option>
+          <option value="tablet">📱 Tablet · 768×1024</option>
+          <option value="mobile">📱 Mobile · 375×667</option>
+        </select>
+      </div>
+      <div class="annotate-bar" id="annotate-bar" hidden>
+        <button class="annotate-tool" data-tool="rect" title="Rectangle highlight">▭</button>
+        <button class="annotate-tool" data-tool="free" title="Freehand pen">✎</button>
+        <button class="annotate-tool" data-tool="arrow" title="Arrow">↗</button>
+        <button class="annotate-tool" data-tool="text" title="Text marker">T</button>
+        <span class="annotate-spacer"></span>
+        <input class="annotate-color" id="annotate-color" type="color" value="#ff3b30" title="Color">
+        <button class="annotate-tool" data-tool="undo" title="Undo last">⤺</button>
+        <button class="annotate-tool" data-tool="clear" title="Clear all">⌫</button>
+      </div>
+    </div>
+    <div class="canvas-area">
+      <div class="placeholder">
+        <div class="placeholder-title">Claude Browser</div>
+        <div class="placeholder-subtitle">Type a URL above and press Enter, or run "Claude Browser: Open URL…" from the command palette.</div>
+        <div class="placeholder-status" id="status">Idle</div>
+      </div>
+      <canvas id="screencast" tabindex="0" hidden></canvas>
+      <div id="pick-overlay" class="pick-overlay" hidden>
+        <div id="pick-outline" class="pick-outline"></div>
+        <div id="pick-banner" class="pick-banner">Pick mode — click an element. Esc to cancel.</div>
+      </div>
+      <div id="annotate-layer" class="annotate-layer" hidden>
+        <svg id="annotate-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>
+        <div id="annotate-text-input" class="annotate-text-input" hidden>
+          <input type="text" id="annotate-text-field" placeholder="Type a comment, Enter to save">
+        </div>
+      </div>
+    </div>
+    <div class="status-bar">
+      <span class="status-dot" id="conn-dot" title="Disconnected"></span>
+      <span class="status-text" id="control-mode">—</span>
+      <span class="status-spacer"></span>
+      <span class="status-text" id="viewport-info">—</span>
+      <span class="status-text" id="capture-count">0 captures</span>
+    </div>
+  </div>
+  <script nonce="{{NONCE}}" src="{{SCRIPT_URI}}"></script>
+</body>
+</html>
