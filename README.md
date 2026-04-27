@@ -29,7 +29,7 @@ Download `claude-browser-plus.vsix` from the [latest release](https://github.com
 
 - Open the **Extensions** view (`Ctrl+Shift+X` / `Cmd+Shift+X`).
 - Click `…` (top-right of Extensions panel) → **Install from VSIX…** → pick the file.
-- VS Code installs and reloads.
+- **Reload VS Code when prompted** (or run **Developer: Reload Window** from the Command Palette — `Ctrl+Shift+P` / `Cmd+Shift+P`). The extension won't activate until the window reloads.
 
 ### 4. First launch
 
