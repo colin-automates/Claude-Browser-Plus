@@ -12,6 +12,7 @@ import { emitImage, emitText, type ToolContent } from './output.js';
 import { getPageState } from '../browser/page-state.js';
 import { pickCoordinator } from '../pick-coordinator.js';
 import { pushQueue, type Push } from '../push-queue.js';
+import { humanClick, humanType } from '../browser/human-input.js';
 import type { BrowserPanelProvider } from '../panel/provider.js';
 
 const tabIdProp = {
@@ -370,13 +371,22 @@ async function dispatch(
       const target = args.target as { selector?: unknown; x?: unknown; y?: unknown } | undefined;
       if (!target || typeof target !== 'object') return err('target required');
       return browser.withPage(tabId, async (page) => {
+        let x: number;
+        let y: number;
         if (typeof target.selector === 'string') {
-          await page.click(target.selector, { timeout: 5000 });
+          const handle = await page.waitForSelector(target.selector, { timeout: 5000 });
+          if (!handle) return err(`selector not found: ${target.selector}`);
+          const box = await handle.boundingBox();
+          if (!box) return err(`element not visible: ${target.selector}`);
+          x = box.x + box.width / 2;
+          y = box.y + box.height / 2;
         } else if (typeof target.x === 'number' && typeof target.y === 'number') {
-          await page.mouse.click(target.x, target.y);
+          x = target.x;
+          y = target.y;
         } else {
           return err('target requires selector or {x,y}');
         }
+        await humanClick(page, x, y);
         await settle(page);
         return ok([{ type: 'text', text: 'Clicked' }]);
       });
@@ -387,11 +397,19 @@ async function dispatch(
       const clear = args.clear !== false;
       return browser.withPage(tabId, async (page) => {
         if (selector) {
-          if (clear) await page.fill(selector, '');
-          await page.fill(selector, text);
-        } else {
-          await page.keyboard.type(text);
+          // Focus the field by clicking its center; clear via select-all+delete
+          // (page.fill() pastes instantly via DOM mutation — strong bot signal).
+          const handle = await page.waitForSelector(selector, { timeout: 5000 });
+          if (!handle) return err(`selector not found: ${selector}`);
+          const box = await handle.boundingBox();
+          if (!box) return err(`element not visible: ${selector}`);
+          await humanClick(page, box.x + box.width / 2, box.y + box.height / 2);
+          if (clear) {
+            await page.keyboard.press('Control+A');
+            await page.keyboard.press('Delete');
+          }
         }
+        await humanType(page, text);
         await settle(page);
         return ok([{ type: 'text', text: `Typed ${text.length} char(s)` }]);
       });

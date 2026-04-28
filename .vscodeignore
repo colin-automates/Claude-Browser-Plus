@@ -1,6 +1,8 @@
 .vscode/**
 .vscode-test/**
+.claude/**
 src/**
+scripts/**
 .github/**
 .gitignore
 .gitattributes

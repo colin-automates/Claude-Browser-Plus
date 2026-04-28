@@ -18,7 +18,8 @@ A live, interactive Chromium browser embedded in a VS Code side panel — drivab
 
 - **VS Code 1.106 or newer** (October 2025+). Uses the stable `secondarySidebar` view-container contribution.
 - **Claude Code** (CLI or VS Code extension).
-- **~250 MB disk** for the Chromium download (one-time, on first activation).
+- **Recommended: Google Chrome installed.** The extension prefers system Chrome over bundled Chromium because real Chrome has a much smaller bot-detection fingerprint. Without Chrome, the extension falls back to bundled Chromium and warns in the output channel; sites with aggressive anti-bot (Cloudflare, Datadome) may then block requests.
+- **~250 MB disk** for the bundled Chromium download (skipped if system Chrome is detected).
 - **Internet access** for the first-run Chromium download. Behind a corporate proxy? Set `HTTPS_PROXY` or `PLAYWRIGHT_DOWNLOAD_HOST` before launching VS Code.
 
 ### 2. Get the `.vsix`

@@ -8,6 +8,8 @@ import { Screencaster } from './screencast.js';
 import { TabRegistry, type TabInfo, type TabSnapshot } from './tabs.js';
 import { attachPageState } from './page-state.js';
 import { isOwnProject } from './project.js';
+import { detectSystemChrome, type ChromeDetectResult } from './chrome-detect.js';
+import { STEALTH_INIT_SCRIPT } from './stealth.js';
 
 const CHROMIUM_INSTALLED_KEY = 'chromium-installed-v2';
 const BROWSERS_TO_INSTALL = ['chromium', 'chromium-headless-shell'];
@@ -79,6 +81,7 @@ export class BrowserManager {
   private viewport: { width: number; height: number; preset: ViewportPreset | 'custom' };
   private reconnecting = false;
   private disposing = false;
+  private chromeDetect: ChromeDetectResult | null = null;
 
   constructor(
     private readonly extCtx: vscode.ExtensionContext,
@@ -243,21 +246,45 @@ export class BrowserManager {
     if (this.launching) return this.launching;
 
     this.launching = (async () => {
-      await this.ensureChromium();
+      // Prefer system Chrome over bundled Chromium — real Chrome leaks far less
+      // bot-detection signal. If absent, fall back to the bundled download.
+      if (!this.chromeDetect) this.chromeDetect = detectSystemChrome();
+      if (this.chromeDetect.found) {
+        this.output.appendLine(`[stealth] Using system Chrome at ${this.chromeDetect.path}`);
+      } else {
+        this.output.appendLine(
+          '[stealth] Google Chrome not detected — falling back to bundled Chromium. Bot detection will be more aggressive on Cloudflare/Datadome sites.'
+        );
+        await this.ensureChromium();
+      }
       this.setBrowsersEnv();
       const chromium = await this.loadChromium();
 
+      // The per-workspace profile is part of the anti-detection strategy:
+      // cookies and Cloudflare/Datadome challenge completions accumulate trust over time.
       const profile = profileDir(this.extCtx);
       await fs.mkdir(profile, { recursive: true });
       this.output.appendLine(`Profile dir: ${profile}`);
 
       const vp = { width: this.viewport.width, height: this.viewport.height };
+      const stealthArgs = [
+        `--window-position=-10000,-10000`,
+        `--window-size=${vp.width},${vp.height}`,
+        '--disable-blink-features=AutomationControlled'
+      ];
+      const ignoreDefaultArgs = ['--enable-automation'];
+
       try {
         this.context = await chromium.launchPersistentContext(profile, {
-          headless: true,
-          viewport: vp
+          channel: this.chromeDetect.found ? 'chrome' : undefined,
+          headless: false,
+          viewport: vp,
+          args: stealthArgs,
+          ignoreDefaultArgs
         });
-        this.output.appendLine(`Persistent context launched @ ${vp.width}×${vp.height} (${String(this.viewport.preset)})`);
+        this.output.appendLine(
+          `Persistent context launched @ ${vp.width}×${vp.height} (${String(this.viewport.preset)}) — channel=${this.chromeDetect.found ? 'chrome' : 'chromium'}`
+        );
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/SingletonLock|ProcessSingleton/.test(msg)) {
@@ -265,12 +292,26 @@ export class BrowserManager {
           vscode.window.showWarningMessage(
             'Claude Browser: profile in use by another VS Code window; running in temporary mode (no persistence).'
           );
-          const browser = await chromium.launch({ headless: true });
+          const browser = await chromium.launch({
+            channel: this.chromeDetect.found ? 'chrome' : undefined,
+            headless: false,
+            args: stealthArgs,
+            ignoreDefaultArgs
+          });
           this.context = await browser.newContext({ viewport: vp });
         } else {
           this.output.appendLine(`Launch failed: ${msg}`);
           throw err;
         }
+      }
+
+      // Apply stealth init script to every page in this context, before any page script.
+      try {
+        await this.context.addInitScript({ content: STEALTH_INIT_SCRIPT });
+      } catch (err) {
+        this.output.appendLine(
+          `[stealth] addInitScript failed: ${err instanceof Error ? err.message : String(err)}`
+        );
       }
 
       this.context.on('page', (p) => this.attachPage(p, true));

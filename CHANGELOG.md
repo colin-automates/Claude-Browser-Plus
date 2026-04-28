@@ -4,6 +4,29 @@ All notable changes to **Claude Browser Plus** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0] — 2026-04-28
+
+Anti-detection hardening — sites that previously blocked us (Cloudflare, Datadome, sannysoft) should now reach actual content.
+
+### Changed
+
+- **No longer runs headless.** Chrome launches with a real window, hidden offscreen at `-10000,-10000`. The screencast pipeline streams frames to the panel as before; the user never sees the browser window. Headless mode was the single biggest fingerprint tell.
+- **Prefers system Google Chrome over bundled Chromium.** If `chrome.exe` / `Google Chrome.app` / `google-chrome` is detected on common install paths, Playwright launches with `channel: 'chrome'`. If absent, falls back to bundled Chromium and warns in the output channel. Real Chrome has a much smaller bot-detection fingerprint.
+- **Human-paced click + type.** `browser_click` now resolves selectors to the element's bounding-box center, approaches from a random offset, and presses with jitter (50–150 ms dwell, 50–130 ms hold). `browser_type` types one character at a time with 40–120 ms per-keystroke jitter instead of `page.fill()`'s instant DOM paste. User-driven input from the panel is unchanged (it's already real-human timing).
+- **Strips `--enable-automation`.** Playwright's default automation banner / fingerprint is suppressed via `ignoreDefaultArgs`. Adds `--disable-blink-features=AutomationControlled`.
+
+### Added
+
+- **`rebrowser-patches` postinstall hook** patches `playwright-core` to suppress the CDP `Runtime.enable` tell that catches most stealth setups against Cloudflare/Datadome. Failures are logged and don't break installs.
+- **Stealth init script** applied to every page before any page script runs: deletes `navigator.webdriver`, restores non-empty `navigator.plugins` and `navigator.languages`, fills out `window.chrome.runtime`/`app`, and overrides `Notification.permission` if it reads as `denied` (a headless tell).
+- **Persistent profile note** clarifies that the per-workspace profile is part of the anti-detection strategy — cookies and challenge completions accumulate trust over time.
+
+### Notes
+
+- macOS may clamp the off-screen Chrome window to the primary display (top-left) — known limitation; we'll add a Darwin-specific `--headless=new` branch if it becomes annoying.
+- rebrowser-patches applies to 4 of 6 target files cleanly on playwright-core 1.59.x (`crConnection`, `crDevTools`, `frames`, `page`). `crPage.js` and `crServiceWorker.js` hunks fail to match because of a Playwright-internal import-alias change. The patched files cover the main execution-context detection path (`frames.js → _context → __re__emitExecutionContext`), which is the hot path. A future Playwright bump may close this gap.
+- Verification: `https://bot.sannysoft.com` should pass green on `WebDriver`, `Plugins`, `Languages`, `Notifications`, `Chrome` checks. `https://www.cloudflare.com` should load without an interstitial.
+
 ## [1.0.0] — 2026-04-27
 
 First public release.

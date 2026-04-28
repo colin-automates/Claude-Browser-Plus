@@ -2,6 +2,7 @@ node_modules/
 out/
 .claude-browser/
 .ai-browser/
+.claude/
 *.vsix
 .vscode-test/
 .DS_Store

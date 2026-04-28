@@ -2,7 +2,7 @@
   "name": "claude-browser-plus",
   "displayName": "Claude Browser Plus",
   "description": "Live, interactive Chromium browser in a VS Code side panel, drivable by Claude Code via MCP. Pick elements, annotate localhost dev sites, and stream them back to Claude — without leaving the editor.",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "publisher": "colin-automates",
   "license": "MIT",
   "private": true,
@@ -35,7 +35,9 @@
     "Visualization"
   ],
   "main": "./out/extension.js",
-  "activationEvents": ["onStartupFinished"],
+  "activationEvents": [
+    "onStartupFinished"
+  ],
   "contributes": {
     "viewsContainers": {
       "secondarySidebar": [
@@ -103,13 +105,20 @@
       "properties": {
         "aiBrowser.projectHosts": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "default": [],
           "markdownDescription": "Hosts (e.g. `dev.mysite.test`) treated as **your own project** in addition to localhost. Annotate mode and the project badge are enabled on these hosts."
         },
         "aiBrowser.defaultViewport": {
           "type": "string",
-          "enum": ["desktop", "laptop", "tablet", "mobile"],
+          "enum": [
+            "desktop",
+            "laptop",
+            "tablet",
+            "mobile"
+          ],
           "default": "desktop",
           "markdownDescription": "Default viewport at startup. `desktop`=1440×900, `laptop`=1280×800, `tablet`=768×1024, `mobile`=375×667. Always desktop unless overridden."
         },
@@ -144,13 +153,15 @@
     "watch": "node esbuild.mjs --watch",
     "typecheck": "tsc --noEmit",
     "package": "vsce package --out claude-browser-plus.vsix --skip-license",
-    "vscode:prepublish": "npm run build"
+    "vscode:prepublish": "npm run build",
+    "postinstall": "node ./scripts/apply-stealth-patches.mjs"
   },
   "devDependencies": {
     "@types/node": "^20.11.0",
     "@types/vscode": "^1.106.0",
     "@vscode/vsce": "^3.9.1",
     "esbuild": "^0.20.0",
+    "rebrowser-patches": "^1.0.19",
     "typescript": "^5.4.0"
   }
 }
