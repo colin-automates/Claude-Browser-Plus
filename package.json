@@ -2,7 +2,7 @@
   "name": "claude-browser-plus",
   "displayName": "Claude Browser Plus",
   "description": "Live, interactive Chromium browser in a VS Code side panel, drivable by Claude Code via MCP. Pick elements, annotate localhost dev sites, and stream them back to Claude — without leaving the editor.",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "publisher": "colin-automates",
   "license": "MIT",
   "private": true,

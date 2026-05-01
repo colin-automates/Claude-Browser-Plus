@@ -4,6 +4,19 @@ All notable changes to **Claude Browser Plus** are documented in this file.
 
 The format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and the project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.1] — 2026-04-28
+
+Hotfix for `1.1.0` — partial rebrowser-patches application broke browser launch.
+
+### Fixed
+
+- Browser launch failed with `Cannot read properties of undefined (reading '_sessions')` when system Chrome was used. Cause: `rebrowser-patches@1.0.19` only applies cleanly to playwright-core ≤ 1.49; on the 1.59.x we ship, two of six patch hunks fail (Playwright renamed `_delegate` → `delegate` and the `Worker` import alias). The partial state left `frames.js` calling into properties that no longer exist.
+- The postinstall script is now a no-op until rebrowser-patches catches up to playwright-core 1.59+. The dependency stays installed; flip `ENABLE_REBROWSER_PATCHES = true` in `scripts/apply-stealth-patches.mjs` to re-enable. The script also now reverses the patch automatically if it fails to apply cleanly, so a future re-enable can't leave the package in a broken state.
+
+### Notes
+
+- The other 5 anti-detection mitigations from 1.1.0 (non-headless launch, system Chrome channel, automation-flag scrub, `addInitScript` stealth patches, humanized input) are unaffected and remain active. The lost coverage is the CDP `Runtime.enable` suppression — relevant against the most aggressive Cloudflare/Datadome probes but not the bulk of detection vectors.
+
 ## [1.1.0] — 2026-04-28
 
 Anti-detection hardening — sites that previously blocked us (Cloudflare, Datadome, sannysoft) should now reach actual content.
