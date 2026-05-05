@@ -56,9 +56,8 @@ export async function sendPickedToClaude(
     `- Text: "${picked.text}"`
   ];
   if (screenshotPath) {
-    lines.push('', `Screenshot of the element saved to:`);
-    lines.push(`\`${screenshotPath}\``);
-    lines.push('', '_Use the Read tool to view the image when needed._');
+    lines.push('', `Screenshot of the element is attached as the next image block.`);
+    lines.push(`(Backup copy on disk: \`${screenshotPath}\`)`);
   }
 
   const payload = lines.join('\n');
@@ -132,13 +131,11 @@ export async function sendAnnotationToClaude(opts: {
     `- Viewport: ${opts.viewport.width} × ${opts.viewport.height}`,
     `- Annotations: ${opts.annotations.length}`,
     ``,
-    `Composite PNG (frame + annotations):`,
-    `\`${pngPath}\``,
+    `The composite (page screenshot with annotations drawn on top) is attached as the next image block.`,
+    `Backup copy on disk: \`${pngPath}\``,
     ``,
-    `Structured JSON (with target_selector / target_styles per annotation):`,
-    `\`${jsonPath}\``,
-    ``,
-    `_Use the Read tool on either path. The JSON identifies the underlying DOM element each annotation overlays._`
+    `Structured JSON with \`target_selector\` / \`target_styles\` per annotation:`,
+    `\`${jsonPath}\` (use the Read tool to load the full JSON if you need DOM-level detail).`
   ];
 
   const lite: AnnotationForBridge[] = opts.annotations.slice(0, 5).map((a) => ({

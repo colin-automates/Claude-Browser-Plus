@@ -753,6 +753,23 @@ async function dispatch(
         const p: Push = pushes[i];
         const header = `--- Push ${i + 1}/${pushes.length} (${p.kind}) ---`;
         blocks.push({ type: 'text', text: `${header}\n${p.markdown}` });
+
+        // Inline the screenshot bytes so Claude actually SEES the image.
+        // Without this, Claude only got file paths and could not view the artifact.
+        const imagePath = p.kind === 'annotation' ? p.pngPath : p.screenshotPath;
+        if (imagePath) {
+          try {
+            const buf = await fs.readFile(imagePath);
+            const meta: Record<string, unknown> = { push_kind: p.kind, url: p.url };
+            if (p.kind === 'annotation') meta.annotations = p.count;
+            else if (p.selector) meta.selector = p.selector;
+            const imgBlocks = await emitImage(buf, 'image/png', context, meta);
+            blocks.push(...imgBlocks);
+          } catch (err) {
+            const m = err instanceof Error ? err.message : String(err);
+            blocks.push({ type: 'text', text: `(image at ${imagePath} could not be read: ${m})` });
+          }
+        }
       }
       return ok(blocks);
     }
