@@ -333,6 +333,35 @@ html, body {
   outline: none;
 }
 
+.volume-control {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  padding: 0 6px;
+  margin-left: 4px;
+  border-left: 1px solid var(--vscode-panel-border);
+}
+
+.volume-icon {
+  font-size: 11px;
+  cursor: pointer;
+  user-select: none;
+  opacity: 0.85;
+  min-width: 14px;
+  text-align: center;
+}
+
+.volume-icon:hover {
+  opacity: 1;
+}
+
+.volume-slider {
+  width: 70px;
+  height: 14px;
+  cursor: pointer;
+  accent-color: var(--vscode-button-background, #0e639c);
+}
+
 .action-btn {
   background: var(--vscode-button-secondaryBackground, transparent);
   color: var(--vscode-button-secondaryForeground, var(--vscode-foreground));

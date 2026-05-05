@@ -17,7 +17,7 @@ const BROWSERS_TO_INSTALL = ['chromium', 'chromium-headless-shell'];
 export type ViewportPreset = 'desktop' | 'laptop' | 'tablet' | 'mobile';
 
 const VIEWPORT_PRESETS: Record<ViewportPreset, { width: number; height: number }> = {
-  desktop: { width: 1440, height: 900 },
+  desktop: { width: 1920, height: 1080 },
   laptop: { width: 1280, height: 800 },
   tablet: { width: 768, height: 1024 },
   mobile: { width: 375, height: 667 }
@@ -36,6 +36,85 @@ function readScreencastSettings(): { quality: number; fps: number } {
   const fps = Math.max(5, Math.min(60, cfg.get<number>('screencastFps') ?? 60));
   const quality = Math.max(30, Math.min(95, cfg.get<number>('screencastQuality') ?? 85));
   return { quality, fps };
+}
+
+function buildVolumeInitScript(initial: number): string {
+  // Runs in every page before any page script. Patches HTMLMediaElement so every
+  // <audio>/<video> tracks window.__cbpVolume; exposes window.__cbpSetVolume(v) for
+  // live updates from the extension host.
+  return `(() => {
+    if (window.__cbpVolumeInstalled) {
+      window.__cbpVolume = ${initial};
+      try { window.__cbpSetVolume && window.__cbpSetVolume(${initial}); } catch {}
+      return;
+    }
+    window.__cbpVolumeInstalled = true;
+    window.__cbpVolume = ${initial};
+    const apply = (el) => {
+      try {
+        el.volume = window.__cbpVolume;
+        el.muted = window.__cbpVolume <= 0;
+      } catch {}
+    };
+    const applyAll = () => {
+      try {
+        document.querySelectorAll('audio,video').forEach(apply);
+      } catch {}
+    };
+    window.__cbpSetVolume = (v) => {
+      const n = Math.max(0, Math.min(1, Number(v) || 0));
+      window.__cbpVolume = n;
+      applyAll();
+    };
+    // Patch volume setter so pages that mute themselves get overridden gently:
+    // we re-apply our value after each set.
+    try {
+      const proto = HTMLMediaElement.prototype;
+      const desc = Object.getOwnPropertyDescriptor(proto, 'volume');
+      if (desc && desc.set) {
+        const origSet = desc.set;
+        Object.defineProperty(proto, 'volume', {
+          configurable: true,
+          enumerable: desc.enumerable,
+          get: desc.get,
+          set: function (v) {
+            const target = window.__cbpVolume;
+            origSet.call(this, target);
+          }
+        });
+      }
+    } catch {}
+    // Apply on play().
+    try {
+      const origPlay = HTMLMediaElement.prototype.play;
+      HTMLMediaElement.prototype.play = function () {
+        apply(this);
+        return origPlay.apply(this, arguments);
+      };
+    } catch {}
+    const start = () => {
+      applyAll();
+      try {
+        const obs = new MutationObserver((records) => {
+          for (const r of records) {
+            r.addedNodes && r.addedNodes.forEach((n) => {
+              if (!n) return;
+              if (n.tagName === 'AUDIO' || n.tagName === 'VIDEO') apply(n);
+              if (n.querySelectorAll) {
+                try { n.querySelectorAll('audio,video').forEach(apply); } catch {}
+              }
+            });
+          }
+        });
+        obs.observe(document.documentElement || document, { subtree: true, childList: true });
+      } catch {}
+    };
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', start, { once: true });
+    } else {
+      start();
+    }
+  })();`;
 }
 
 export type MouseInput = {
@@ -82,6 +161,7 @@ export class BrowserManager {
   private reconnecting = false;
   private disposing = false;
   private chromeDetect: ChromeDetectResult | null = null;
+  private volume = 1.0;
 
   constructor(
     private readonly extCtx: vscode.ExtensionContext,
@@ -311,6 +391,16 @@ export class BrowserManager {
       } catch (err) {
         this.output.appendLine(
           `[stealth] addInitScript failed: ${err instanceof Error ? err.message : String(err)}`
+        );
+      }
+
+      // Apply volume init script — installs a MutationObserver that keeps every
+      // <audio>/<video> element pinned to window.__cbpVolume.
+      try {
+        await this.context.addInitScript({ content: buildVolumeInitScript(this.volume) });
+      } catch (err) {
+        this.output.appendLine(
+          `[volume] addInitScript failed: ${err instanceof Error ? err.message : String(err)}`
         );
       }
 
@@ -626,6 +716,29 @@ export class BrowserManager {
       await this.screencaster.setActive(active);
     }
     this.output.appendLine(`Viewport → ${dim.width}×${dim.height} (${preset})`);
+  }
+
+  async setVolume(volume: number): Promise<void> {
+    const v = Math.max(0, Math.min(1, volume));
+    this.volume = v;
+    if (!this.context) return; // applied to next launch via init script
+    // Refresh init script for newly-opened pages.
+    try {
+      await this.context.addInitScript({ content: buildVolumeInitScript(v) });
+    } catch {
+      /* init scripts only matter for new navigations; ignore failures */
+    }
+    // Apply to every currently-open page immediately.
+    for (const p of this.context.pages()) {
+      try {
+        await p.evaluate((target: number) => {
+          const w = window as unknown as { __cbpSetVolume?: (n: number) => void };
+          if (typeof w.__cbpSetVolume === 'function') w.__cbpSetVolume(target);
+        }, v);
+      } catch {
+        /* page may be navigating or cross-origin */
+      }
+    }
   }
 
   private async reconnect(restoreUrls: string[]): Promise<void> {

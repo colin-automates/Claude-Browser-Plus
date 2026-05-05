@@ -12,6 +12,7 @@ export interface PanelMessageHandler {
   onPick(action: 'hover' | 'click' | 'cancel', x?: number, y?: number): void | Promise<void>;
   onAnnotateSend(payload: AnnotateSendPayload): void | Promise<void>;
   onSetViewport(preset: 'desktop' | 'laptop' | 'tablet' | 'mobile'): void | Promise<void>;
+  onSetVolume(volume: number): void | Promise<void>;
 }
 
 export interface AnnotateSendPayload {
@@ -114,6 +115,10 @@ export class BrowserPanelProvider implements vscode.WebviewViewProvider {
         if (p === 'desktop' || p === 'laptop' || p === 'tablet' || p === 'mobile') {
           void this.handler.onSetViewport(p);
         }
+        return;
+      }
+      if (k === 'setVolume' && this.handler && typeof message.volume === 'number') {
+        void this.handler.onSetVolume(message.volume);
         return;
       }
       if (k === 'annotateSend' && this.handler) {

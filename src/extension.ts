@@ -166,6 +166,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         output.appendLine(`Set viewport failed: ${m}`);
       }
     },
+    async onSetVolume(volume) {
+      if (!manager) return;
+      try {
+        await manager.setVolume(volume);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        output.appendLine(`Set volume failed: ${m}`);
+      }
+    },
     async onPick(action, x, y) {
       if (!manager) return;
       if (action === 'cancel') {

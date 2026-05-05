@@ -79,6 +79,8 @@ const annotateTextInputEl = document.getElementById('annotate-text-input') as HT
 const annotateTextFieldEl = document.getElementById('annotate-text-field') as HTMLInputElement | null;
 const annotateColorEl = document.getElementById('annotate-color') as HTMLInputElement | null;
 const viewportSelectEl = document.getElementById('viewport-select') as HTMLSelectElement | null;
+const volumeSliderEl = document.getElementById('volume-slider') as HTMLInputElement | null;
+const volumeIconEl = document.getElementById('volume-icon') as HTMLElement | null;
 
 const ctx = canvasEl?.getContext('2d', { alpha: false }) ?? null;
 
@@ -592,6 +594,60 @@ async function onSendClick(): Promise<void> {
   exitAnnotateMode();
 }
 
+// ---------- Volume control ----------
+
+interface PersistedState { volume?: number }
+
+let currentVolume = 1.0; // 0..1
+let preMuteVolume = 1.0;
+
+function volumeIcon(v: number): string {
+  if (v <= 0.001) return '🔇';
+  if (v < 0.34) return '🔈';
+  if (v < 0.67) return '🔉';
+  return '🔊';
+}
+
+function applyVolumeUI(): void {
+  if (volumeSliderEl) volumeSliderEl.value = String(Math.round(currentVolume * 100));
+  if (volumeIconEl) volumeIconEl.textContent = volumeIcon(currentVolume);
+}
+
+function setVolume(v: number, opts: { persist: boolean; send: boolean }): void {
+  const clamped = Math.max(0, Math.min(1, v));
+  currentVolume = clamped;
+  applyVolumeUI();
+  if (opts.send) send({ kind: 'setVolume', volume: clamped });
+  if (opts.persist) {
+    const prev = (vscodeApi.getState<PersistedState>() ?? {}) as PersistedState;
+    vscodeApi.setState({ ...prev, volume: clamped });
+  }
+}
+
+function loadPersistedVolume(): void {
+  const state = vscodeApi.getState<PersistedState>();
+  if (state && typeof state.volume === 'number') {
+    currentVolume = Math.max(0, Math.min(1, state.volume));
+  }
+  applyVolumeUI();
+}
+
+function onVolumeInput(): void {
+  if (!volumeSliderEl) return;
+  const v = Number(volumeSliderEl.value) / 100;
+  if (v > 0) preMuteVolume = v;
+  setVolume(v, { persist: true, send: true });
+}
+
+function onVolumeIconClick(): void {
+  if (currentVolume > 0) {
+    preMuteVolume = currentVolume;
+    setVolume(0, { persist: true, send: true });
+  } else {
+    setVolume(preMuteVolume > 0 ? preMuteVolume : 1, { persist: true, send: true });
+  }
+}
+
 // ---------- Chrome bar (URL bar + nav buttons + control toggle) ----------
 
 function onUrlEnter(ev: KeyboardEvent): void {
@@ -656,6 +712,15 @@ function attach(): void {
       }
     });
   }
+  if (volumeSliderEl) {
+    volumeSliderEl.addEventListener('input', onVolumeInput);
+  }
+  if (volumeIconEl) {
+    volumeIconEl.addEventListener('click', onVolumeIconClick);
+  }
+  loadPersistedVolume();
+  // Push the persisted volume to the extension so the browser starts at the right level.
+  send({ kind: 'setVolume', volume: currentVolume });
 }
 
 function throttle<T extends (...args: never[]) => void>(fn: T, ms: number): T {

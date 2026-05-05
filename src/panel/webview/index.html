@@ -14,7 +14,7 @@
         <button class="nav-btn" data-action="back" title="Back">◀</button>
         <button class="nav-btn" data-action="forward" title="Forward">▶</button>
         <button class="nav-btn" data-action="reload" title="Reload">⟳</button>
-        <input class="url-bar" id="url-input" type="text" placeholder="https://" spellcheck="false" autocomplete="off">
+        <input class="url-bar" id="url-input" type="text" placeholder="Enter URL (e.g. google.com)" spellcheck="false" autocomplete="off">
         <span class="own-badge" id="own-badge" hidden title="This URL is your own project — annotate mode is available">★</span>
         <button class="nav-btn nav-btn-toggle" id="control-toggle" data-state="on" title="Take Control: ON (click to release)">👤</button>
       </div>
@@ -28,11 +28,15 @@
         <button class="action-btn" data-action="send" id="send-btn" disabled>Send to Claude</button>
         <span class="action-spacer"></span>
         <select class="viewport-select" id="viewport-select" title="Viewport preset">
-          <option value="desktop">🖥 Desktop · 1440×900</option>
+          <option value="desktop">🖥 Desktop · 1920×1080</option>
           <option value="laptop">💻 Laptop · 1280×800</option>
           <option value="tablet">📱 Tablet · 768×1024</option>
           <option value="mobile">📱 Mobile · 375×667</option>
         </select>
+        <span class="volume-control" title="Page audio volume">
+          <span class="volume-icon" id="volume-icon">🔊</span>
+          <input class="volume-slider" id="volume-slider" type="range" min="0" max="100" step="1" value="100" title="Page audio volume">
+        </span>
       </div>
       <div class="annotate-bar" id="annotate-bar" hidden>
         <button class="annotate-tool" data-tool="rect" title="Rectangle highlight">▭</button>
