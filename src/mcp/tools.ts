@@ -287,6 +287,23 @@ const TOOLS = [
       },
       required: ['url', 'save_path']
     }
+  },
+  {
+    name: 'browser_download_assets',
+    description:
+      "Batch-download a list of asset URLs using the active page's session (cookies, auth). Each file lands in <workspace>/.claude-browser/downloads/ with auto-renaming on collision. Filenames come from Content-Disposition or the URL pathname. Use this after extract_dom_resources to grab all images/videos on a page.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        urls: {
+          type: 'array',
+          items: { type: 'string' },
+          description: 'List of absolute URLs to download.'
+        },
+        ...tabIdProp
+      },
+      required: ['urls']
+    }
   }
 ];
 
@@ -772,6 +789,46 @@ async function dispatch(
         }
       }
       return ok(blocks);
+    }
+    case 'browser_download_assets': {
+      const raw = args.urls;
+      if (!Array.isArray(raw) || raw.length === 0) {
+        return err('urls must be a non-empty array of strings');
+      }
+      const urls = raw.filter((u): u is string => typeof u === 'string');
+      if (urls.length === 0) return err('urls must contain at least one string');
+
+      const results: { url: string; status: 'ok' | 'error'; path?: string; size?: number; error?: string }[] = [];
+      for (const url of urls) {
+        try {
+          const inferredName = (() => {
+            try {
+              const u = new URL(url);
+              const last = u.pathname.split('/').filter(Boolean).pop() ?? 'asset';
+              return decodeURIComponent(last) || 'asset';
+            } catch { return 'asset'; }
+          })();
+          const r = await browser.downloadAsset(tabId, url, inferredName);
+          results.push({ url, status: 'ok', path: r.savedPath, size: r.size });
+        } catch (e) {
+          const m = e instanceof Error ? e.message : String(e);
+          results.push({ url, status: 'error', error: m });
+        }
+      }
+
+      const okCount = results.filter((r) => r.status === 'ok').length;
+      const errCount = results.length - okCount;
+      const lines: string[] = [`Downloaded ${okCount}/${results.length} asset(s); ${errCount} error(s).`, ''];
+      for (const r of results) {
+        if (r.status === 'ok') {
+          lines.push(`✓ ${r.url}`);
+          lines.push(`  → ${r.path} (${r.size} bytes)`);
+        } else {
+          lines.push(`✗ ${r.url}`);
+          lines.push(`  ${r.error}`);
+        }
+      }
+      return ok([{ type: 'text', text: lines.join('\n') }]);
     }
     case 'download_through_session': {
       const url = asString(args.url);

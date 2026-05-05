@@ -1,4 +1,5 @@
 import * as vscode from 'vscode';
+import * as path from 'node:path';
 import { BrowserPanelProvider } from './panel/provider.js';
 import { BrowserManager } from './browser/manager.js';
 import type { InputMessage } from './browser/manager.js';
@@ -173,6 +174,42 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       } catch (err) {
         const m = err instanceof Error ? err.message : String(err);
         output.appendLine(`Set volume failed: ${m}`);
+      }
+    },
+    async onSaveAsset(action, x, y) {
+      if (!manager) return;
+      if (action === 'cancel') {
+        provider.postSaveAssetHover(null);
+        return;
+      }
+      if (typeof x !== 'number' || typeof y !== 'number') return;
+      try {
+        const asset = await manager.resolveAssetAt(undefined, x, y);
+        if (action === 'hover') {
+          provider.postSaveAssetHover(asset ? { bbox: asset.bbox, kind: asset.kind, url: asset.url } : null);
+          return;
+        }
+        // click → download
+        if (!asset) {
+          vscode.window.showWarningMessage('Claude Browser: no downloadable asset under that click.');
+          return;
+        }
+        const result = await manager.downloadAsset(undefined, asset.url, asset.suggestedName);
+        const fileUri = vscode.Uri.file(result.savedPath);
+        const choice = await vscode.window.showInformationMessage(
+          `Saved ${asset.kind}: ${path.basename(result.savedPath)} (${(result.size / 1024).toFixed(1)} KB)`,
+          'Reveal',
+          'Open'
+        );
+        if (choice === 'Reveal') {
+          await vscode.commands.executeCommand('revealFileInOS', fileUri);
+        } else if (choice === 'Open') {
+          await vscode.commands.executeCommand('vscode.open', fileUri);
+        }
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        output.appendLine(`Save asset failed: ${m}`);
+        vscode.window.showErrorMessage(`Claude Browser: save failed: ${m}`);
       }
     },
     async onPick(action, x, y) {

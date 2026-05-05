@@ -81,6 +81,10 @@ const annotateColorEl = document.getElementById('annotate-color') as HTMLInputEl
 const viewportSelectEl = document.getElementById('viewport-select') as HTMLSelectElement | null;
 const volumeSliderEl = document.getElementById('volume-slider') as HTMLInputElement | null;
 const volumeIconEl = document.getElementById('volume-icon') as HTMLElement | null;
+const saveBtnEl = document.getElementById('save-btn') as HTMLButtonElement | null;
+const saveOverlayEl = document.getElementById('save-overlay') as HTMLElement | null;
+const saveOutlineEl = document.getElementById('save-outline') as HTMLElement | null;
+const saveBannerEl = document.getElementById('save-banner') as HTMLElement | null;
 
 const ctx = canvasEl?.getContext('2d', { alpha: false }) ?? null;
 
@@ -94,6 +98,7 @@ let controlOn = true;
 let mouseDownButton: number | null = null;
 let lastUrl = '';
 let pickModeOn = false;
+let saveModeOn = false;
 let ownProject = false;
 let annotator: Annotator | null = null;
 
@@ -361,6 +366,13 @@ function onKeyDown(ev: KeyboardEvent): void {
     }
     return;
   }
+  if (saveModeOn) {
+    if (ev.key === 'Escape') {
+      ev.preventDefault();
+      exitSaveMode();
+    }
+    return;
+  }
   if (!controlOn) return;
   if (document.activeElement === urlInputEl) return;
   const target = ev.target as HTMLElement | null;
@@ -486,6 +498,95 @@ function onPickOverlayClick(ev: MouseEvent): void {
 function onPickButtonClick(): void {
   if (pickModeOn) exitPickMode();
   else enterPickMode();
+}
+
+// ---------- Save mode (download assets) ----------
+
+function setSaveOutline(box: { x: number; y: number; width: number; height: number } | null): void {
+  if (!saveOutlineEl) return;
+  if (!box) {
+    saveOutlineEl.classList.remove('visible');
+    return;
+  }
+  const geom = canvasGeometry();
+  if (!geom) return;
+  const css = pageBoxToCanvasCss(box, geom);
+  saveOutlineEl.style.left = `${css.left}px`;
+  saveOutlineEl.style.top = `${css.top}px`;
+  saveOutlineEl.style.width = `${css.width}px`;
+  saveOutlineEl.style.height = `${css.height}px`;
+  saveOutlineEl.classList.add('visible');
+}
+
+function setSaveBanner(text: string): void {
+  if (saveBannerEl) saveBannerEl.textContent = text;
+}
+
+function enterSaveMode(): void {
+  if (pickModeOn) exitPickMode();
+  saveModeOn = true;
+  if (saveBtnEl) saveBtnEl.dataset.state = 'on';
+  if (saveOverlayEl) {
+    saveOverlayEl.hidden = false;
+    saveOverlayEl.classList.add('active');
+  }
+  setSaveOutline(null);
+  setSaveBanner('Save mode — click an image / video / background to download. Esc to cancel.');
+  setStatus('Save mode — click an asset to download');
+}
+
+function exitSaveMode(): void {
+  saveModeOn = false;
+  if (saveBtnEl) saveBtnEl.dataset.state = 'off';
+  if (saveOverlayEl) {
+    saveOverlayEl.hidden = true;
+    saveOverlayEl.classList.remove('active');
+  }
+  setSaveOutline(null);
+  setStatus('Ready');
+  send({ kind: 'saveAsset', action: 'cancel' });
+}
+
+function onSaveOverlayMove(ev: MouseEvent): void {
+  if (!saveModeOn) return;
+  const c = pageCoords(ev);
+  if (!c) return;
+  send({ kind: 'saveAsset', action: 'hover', x: c.x, y: c.y });
+}
+
+function onSaveOverlayClick(ev: MouseEvent): void {
+  if (!saveModeOn) return;
+  const c = pageCoords(ev);
+  if (!c) return;
+  ev.preventDefault();
+  ev.stopPropagation();
+  send({ kind: 'saveAsset', action: 'click', x: c.x, y: c.y });
+  exitSaveMode();
+}
+
+function onSaveButtonClick(): void {
+  if (saveModeOn) exitSaveMode();
+  else enterSaveMode();
+}
+
+interface SaveAssetHoverInfo {
+  bbox: { x: number; y: number; width: number; height: number };
+  kind: string;
+  url: string;
+}
+
+function handleSaveAssetHover(info: SaveAssetHoverInfo | null): void {
+  if (!saveModeOn) return;
+  if (!info) {
+    setSaveOutline(null);
+    setSaveBanner('No asset under cursor — click on an image, video, or background to download.');
+    return;
+  }
+  setSaveOutline(info.bbox);
+  // Trim long URLs for display
+  let urlPreview = info.url;
+  if (urlPreview.length > 80) urlPreview = urlPreview.slice(0, 77) + '…';
+  setSaveBanner(`${info.kind} → ${urlPreview}`);
 }
 
 // ---------- Annotate mode (Phase 8) ----------
@@ -694,6 +795,12 @@ function attach(): void {
     pickOverlayEl.addEventListener('click', onPickOverlayClick);
     pickOverlayEl.addEventListener('contextmenu', (e) => e.preventDefault());
   }
+  if (saveBtnEl) saveBtnEl.addEventListener('click', onSaveButtonClick);
+  if (saveOverlayEl) {
+    saveOverlayEl.addEventListener('mousemove', throttle(onSaveOverlayMove, 80));
+    saveOverlayEl.addEventListener('click', onSaveOverlayClick);
+    saveOverlayEl.addEventListener('contextmenu', (e) => e.preventDefault());
+  }
   if (annotateBtnEl) annotateBtnEl.addEventListener('click', onAnnotateButtonClick);
   if (sendBtnEl) sendBtnEl.addEventListener('click', () => void onSendClick());
   document.querySelectorAll<HTMLElement>('.annotate-tool[data-tool]').forEach((btn) => {
@@ -837,6 +944,11 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
       const pm = msg as PickStartCommand;
       if (pm.on && !pickModeOn) enterPickMode();
       else if (!pm.on && pickModeOn) exitPickMode();
+      break;
+    }
+    case 'saveAssetHover': {
+      const m = msg as unknown as { info: SaveAssetHoverInfo | null };
+      handleSaveAssetHover(m.info);
       break;
     }
     case 'viewport': {

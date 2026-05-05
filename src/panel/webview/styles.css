@@ -115,6 +115,11 @@ html, body {
   display: none;
 }
 
+.save-outline {
+  border-color: var(--vscode-charts-green, #4caf50);
+  background: rgba(76, 175, 80, 0.15);
+}
+
 .pick-outline.visible {
   display: block;
 }

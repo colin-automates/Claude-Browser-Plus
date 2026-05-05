@@ -38,6 +38,44 @@ function readScreencastSettings(): { quality: number; fps: number } {
   return { quality, fps };
 }
 
+function sanitizeFileName(raw: string): string {
+  // Strip query strings, decode URI components, replace illegal Windows/POSIX chars.
+  let name = raw.split(/[?#]/)[0];
+  try { name = decodeURIComponent(name); } catch { /* leave as-is */ }
+  name = name.replace(/[<>:"/\\|?*]/g, '_').replace(/\s+/g, '_').trim();
+  if (!name) name = 'asset';
+  // Cap length to keep paths reasonable on Windows.
+  if (name.length > 180) {
+    const ext = name.lastIndexOf('.');
+    const stem = ext > 0 ? name.slice(0, ext) : name;
+    const tail = ext > 0 ? name.slice(ext) : '';
+    name = stem.slice(0, 180 - tail.length) + tail;
+  }
+  return name;
+}
+
+async function uniquePath(dir: string, fileName: string): Promise<string> {
+  const candidate = path.join(dir, fileName);
+  try {
+    await fs.access(candidate);
+  } catch {
+    return candidate; // doesn't exist
+  }
+  const dot = fileName.lastIndexOf('.');
+  const stem = dot > 0 ? fileName.slice(0, dot) : fileName;
+  const ext = dot > 0 ? fileName.slice(dot) : '';
+  for (let i = 1; i < 1000; i++) {
+    const next = path.join(dir, `${stem} (${i})${ext}`);
+    try {
+      await fs.access(next);
+    } catch {
+      return next;
+    }
+  }
+  // Fall back to timestamp suffix if we somehow exhaust the counter.
+  return path.join(dir, `${stem}-${Date.now()}${ext}`);
+}
+
 function buildVolumeInitScript(initial: number): string {
   // Runs in every page before any page script. Patches HTMLMediaElement so every
   // <audio>/<video> tracks window.__cbpVolume; exposes window.__cbpSetVolume(v) for
@@ -716,6 +754,219 @@ export class BrowserManager {
       await this.screencaster.setActive(active);
     }
     this.output.appendLine(`Viewport → ${dim.width}×${dim.height} (${preset})`);
+  }
+
+  /**
+   * Given a click point on the active page, resolve the nearest underlying asset
+   * (image, video, audio, or background image). Walks up the DOM and inspects
+   * srcset / <source> children / inline background-image / link href.
+   * Returns null if nothing downloadable was found near the click.
+   */
+  async resolveAssetAt(
+    tabId: string | undefined,
+    x: number,
+    y: number
+  ): Promise<{
+    url: string;
+    kind: 'image' | 'video' | 'audio' | 'link' | 'other';
+    suggestedName: string;
+    selector: string;
+    bbox: { x: number; y: number; width: number; height: number };
+  } | null> {
+    return this.withPage(tabId, async (page) => {
+      return page.evaluate(({ px, py }: { px: number; py: number }) => {
+        const pickHighestSrcset = (srcset: string): string | null => {
+          // "img-1x.png 1x, img-2x.png 2x" or "img-w.png 200w, img-2w.png 400w"
+          const candidates = srcset.split(',').map((s) => s.trim()).filter(Boolean);
+          let best: { url: string; weight: number } | null = null;
+          for (const c of candidates) {
+            const parts = c.split(/\s+/);
+            const url = parts[0];
+            const dimSpec = parts[1] ?? '1x';
+            const m = dimSpec.match(/^([\d.]+)([xw])$/);
+            const weight = m ? parseFloat(m[1]) * (m[2] === 'w' ? 1 : 1000) : 1;
+            if (!best || weight > best.weight) best = { url, weight };
+          }
+          return best?.url ?? null;
+        };
+
+        const fileNameFromUrl = (raw: string): string => {
+          try {
+            const u = new URL(raw, location.href);
+            const last = u.pathname.split('/').filter(Boolean).pop() ?? 'asset';
+            return decodeURIComponent(last) || 'asset';
+          } catch {
+            return 'asset';
+          }
+        };
+
+        const generateSelector = (target: Element): string => {
+          if (target.id && /^[A-Za-z][\w-]*$/.test(target.id)) {
+            const sel = `#${CSS.escape(target.id)}`;
+            if (document.querySelectorAll(sel).length === 1) return sel;
+          }
+          const pieces: string[] = [];
+          let cur: Element | null = target;
+          let depth = 0;
+          while (cur && cur !== document.documentElement && depth < 6) {
+            const t = cur.tagName.toLowerCase();
+            const cls = Array.from(cur.classList)
+              .filter((c) => /^[A-Za-z][\w-]{0,40}$/.test(c))
+              .slice(0, 2);
+            let piece = t + (cls.length > 0 ? '.' + cls.map(CSS.escape).join('.') : '');
+            const parent: Element | null = cur.parentElement;
+            if (parent) {
+              const sameTag = Array.from(parent.children).filter((c) => c.tagName === cur!.tagName);
+              if (sameTag.length > 1) {
+                piece += `:nth-of-type(${sameTag.indexOf(cur) + 1})`;
+              }
+            }
+            pieces.unshift(piece);
+            try {
+              if (document.querySelectorAll(pieces.join(' > ')).length === 1) {
+                return pieces.join(' > ');
+              }
+            } catch {
+              /* fall through */
+            }
+            cur = parent;
+            depth++;
+          }
+          return pieces.join(' > ') || target.tagName.toLowerCase();
+        };
+
+        type Hit = { url: string; kind: 'image' | 'video' | 'audio' | 'link' | 'other'; el: Element };
+
+        const findOnElement = (el: Element): Hit | null => {
+          const tag = el.tagName.toLowerCase();
+          if (tag === 'img') {
+            const img = el as HTMLImageElement;
+            if (img.currentSrc) return { url: img.currentSrc, kind: 'image', el };
+            if (img.srcset) {
+              const best = pickHighestSrcset(img.srcset);
+              if (best) return { url: new URL(best, location.href).href, kind: 'image', el };
+            }
+            if (img.src) return { url: img.src, kind: 'image', el };
+          }
+          if (tag === 'picture') {
+            // Inspect <source> children inside <picture>
+            for (const s of Array.from(el.querySelectorAll('source'))) {
+              const ss = (s as HTMLSourceElement).srcset;
+              if (ss) {
+                const best = pickHighestSrcset(ss);
+                if (best) return { url: new URL(best, location.href).href, kind: 'image', el };
+              }
+            }
+          }
+          if (tag === 'video' || tag === 'audio') {
+            const m = el as HTMLMediaElement;
+            if (m.currentSrc) return { url: m.currentSrc, kind: tag === 'video' ? 'video' : 'audio', el };
+            // Look at <source> children
+            for (const s of Array.from(el.querySelectorAll('source'))) {
+              const src = (s as HTMLSourceElement).src;
+              if (src) return { url: src, kind: tag === 'video' ? 'video' : 'audio', el };
+            }
+          }
+          if (tag === 'source') {
+            const s = el as HTMLSourceElement;
+            if (s.src) {
+              const parent = el.parentElement?.tagName.toLowerCase();
+              const kind = parent === 'video' ? 'video' : parent === 'audio' ? 'audio' : 'image';
+              return { url: s.src, kind, el };
+            }
+            if (s.srcset) {
+              const best = pickHighestSrcset(s.srcset);
+              if (best) return { url: new URL(best, location.href).href, kind: 'image', el };
+            }
+          }
+          if (tag === 'a') {
+            const href = (el as HTMLAnchorElement).href;
+            if (href && /\.(png|jpe?g|gif|webp|avif|svg|bmp|ico|mp4|webm|mov|m4v|mp3|m4a|wav|ogg|flac|pdf|zip|gz|tar|rar|7z|exe|dmg|pkg|apk)(\?.*)?$/i.test(href)) {
+              return { url: href, kind: 'link', el };
+            }
+          }
+          // CSS background-image
+          const cs = window.getComputedStyle(el);
+          const bg = cs.backgroundImage;
+          if (bg && bg !== 'none') {
+            const m = bg.match(/url\((['"]?)(.+?)\1\)/);
+            if (m && m[2] && !m[2].startsWith('data:')) {
+              return { url: new URL(m[2], location.href).href, kind: 'image', el };
+            }
+          }
+          return null;
+        };
+
+        // Walk from click target up to <body>, returning the first hit.
+        let el: Element | null = document.elementFromPoint(px, py) as Element | null;
+        let depth = 0;
+        while (el && el !== document.body && depth < 8) {
+          const hit = findOnElement(el);
+          if (hit) {
+            const r = hit.el.getBoundingClientRect();
+            return {
+              url: hit.url,
+              kind: hit.kind,
+              suggestedName: fileNameFromUrl(hit.url),
+              selector: generateSelector(hit.el),
+              bbox: {
+                x: Math.round(r.x),
+                y: Math.round(r.y),
+                width: Math.round(r.width),
+                height: Math.round(r.height)
+              }
+            };
+          }
+          el = el.parentElement;
+          depth++;
+        }
+        return null;
+      }, { px: x, py: y });
+    });
+  }
+
+  /**
+   * Download an asset via the active page's session (cookies, headers).
+   * Saves to <workspace>/.claude-browser/downloads/<filename>, auto-renaming on
+   * collision. Returns the absolute saved path.
+   */
+  async downloadAsset(
+    tabId: string | undefined,
+    url: string,
+    suggestedName: string
+  ): Promise<{ savedPath: string; size: number; status: number; contentType: string }> {
+    return this.withPage(tabId, async (page) => {
+      const apiCtx = page.context().request;
+      const res = await apiCtx.fetch(url);
+      if (!res.ok()) throw new Error(`download failed: HTTP ${res.status()}`);
+      const body = await res.body();
+      const headers = res.headers();
+      const contentType = headers['content-type'] ?? 'application/octet-stream';
+
+      // Honor Content-Disposition filename if present.
+      const cd = headers['content-disposition'] ?? '';
+      let nameFromHeader: string | null = null;
+      const utf8 = cd.match(/filename\*\s*=\s*UTF-8''([^;]+)/i);
+      if (utf8) {
+        try { nameFromHeader = decodeURIComponent(utf8[1]); } catch { /* fall through */ }
+      } else {
+        const plain = cd.match(/filename\s*=\s*"?([^";]+)"?/i);
+        if (plain) nameFromHeader = plain[1];
+      }
+      const baseName = sanitizeFileName(nameFromHeader ?? suggestedName ?? 'asset');
+
+      // Resolve destination root: workspace if available, else extension storage.
+      const wf = vscode.workspace.workspaceFolders?.[0];
+      const root = wf ? wf.uri.fsPath : this.extCtx.globalStorageUri.fsPath;
+      const dir = path.join(root, '.claude-browser', 'downloads');
+      await fs.mkdir(dir, { recursive: true });
+
+      const finalPath = await uniquePath(dir, baseName);
+      await fs.writeFile(finalPath, body);
+
+      this.output.appendLine(`Downloaded ${url} → ${finalPath} (${body.length} bytes, ${contentType})`);
+      return { savedPath: finalPath, size: body.length, status: res.status(), contentType };
+    });
   }
 
   async setVolume(volume: number): Promise<void> {

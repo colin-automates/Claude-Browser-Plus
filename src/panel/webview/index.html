@@ -24,6 +24,7 @@
       </div>
       <div class="action-bar">
         <button class="action-btn" data-action="pick" id="pick-btn">Pick</button>
+        <button class="action-btn" data-action="save" id="save-btn" title="Save mode: click an image, video, or background to download it to .claude-browser/downloads/">Save</button>
         <button class="action-btn" data-action="annotate" id="annotate-btn" disabled title="Available on your own project (localhost / file:// / configured hosts)">Annotate</button>
         <button class="action-btn" data-action="send" id="send-btn" disabled>Send to Claude</button>
         <span class="action-spacer"></span>
@@ -59,6 +60,10 @@
       <div id="pick-overlay" class="pick-overlay" hidden>
         <div id="pick-outline" class="pick-outline"></div>
         <div id="pick-banner" class="pick-banner">Pick mode — click an element. Esc to cancel.</div>
+      </div>
+      <div id="save-overlay" class="pick-overlay save-overlay" hidden>
+        <div id="save-outline" class="pick-outline save-outline"></div>
+        <div id="save-banner" class="pick-banner">Save mode — click an image / video / background to download. Esc to cancel.</div>
       </div>
       <div id="annotate-layer" class="annotate-layer" hidden>
         <svg id="annotate-svg" xmlns="http://www.w3.org/2000/svg" preserveAspectRatio="none"></svg>

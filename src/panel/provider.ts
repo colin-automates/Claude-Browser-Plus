@@ -13,6 +13,7 @@ export interface PanelMessageHandler {
   onAnnotateSend(payload: AnnotateSendPayload): void | Promise<void>;
   onSetViewport(preset: 'desktop' | 'laptop' | 'tablet' | 'mobile'): void | Promise<void>;
   onSetVolume(volume: number): void | Promise<void>;
+  onSaveAsset(action: 'hover' | 'click' | 'cancel', x?: number, y?: number): void | Promise<void>;
 }
 
 export interface AnnotateSendPayload {
@@ -121,6 +122,15 @@ export class BrowserPanelProvider implements vscode.WebviewViewProvider {
         void this.handler.onSetVolume(message.volume);
         return;
       }
+      if (k === 'saveAsset' && typeof message.action === 'string' && this.handler) {
+        const a = message.action;
+        if (a === 'hover' || a === 'click' || a === 'cancel') {
+          const x = typeof message.x === 'number' ? message.x : undefined;
+          const y = typeof message.y === 'number' ? message.y : undefined;
+          void this.handler.onSaveAsset(a, x, y);
+        }
+        return;
+      }
       if (k === 'annotateSend' && this.handler) {
         const payload = message as unknown as AnnotateSendPayload;
         if (payload.png && Array.isArray(payload.annotations) && payload.viewport) {
@@ -167,6 +177,15 @@ export class BrowserPanelProvider implements vscode.WebviewViewProvider {
   postViewport(vp: { width: number; height: number; preset: string }): void {
     if (!this.currentView) return;
     void this.currentView.webview.postMessage({ kind: 'viewport', ...vp });
+  }
+
+  postSaveAssetHover(info: {
+    bbox: { x: number; y: number; width: number; height: number };
+    kind: string;
+    url: string;
+  } | null): void {
+    if (!this.currentView) return;
+    void this.currentView.webview.postMessage({ kind: 'saveAssetHover', info });
   }
 
   hasView(): boolean {
