@@ -4,7 +4,7 @@ import * as path from 'node:path';
 import * as vscode from 'vscode';
 import { captureDir } from '../captures.js';
 
-const INLINE_THRESHOLD = 256 * 1024;
+const INLINE_THRESHOLD = 3 * 1024 * 1024;
 
 export type ToolContent =
   | { type: 'text'; text: string }
