@@ -30,42 +30,66 @@ export class McpHttpServer {
     return this.endpoint;
   }
 
-  async start(): Promise<McpEndpoint> {
+  async start(preferredPort?: number): Promise<McpEndpoint> {
     if (this.endpoint) return this.endpoint;
 
     const token = await this.auth.getToken();
 
-    const httpServer = http.createServer((req, res) => {
-      this.handle(req, res, token).catch((err: unknown) => {
-        const m = err instanceof Error ? err.message : String(err);
-        this.output.appendLine(`MCP request error: ${m}`);
-        if (!res.headersSent) {
-          res.writeHead(500, { 'Content-Type': 'application/json' });
-          res.end(JSON.stringify({ error: 'internal' }));
-        }
+    const makeServer = (): http.Server =>
+      http.createServer((req, res) => {
+        this.handle(req, res, token).catch((err: unknown) => {
+          const m = err instanceof Error ? err.message : String(err);
+          this.output.appendLine(`MCP request error: ${m}`);
+          if (!res.headersSent) {
+            res.writeHead(500, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({ error: 'internal' }));
+          }
+        });
       });
-    });
 
-    return new Promise<McpEndpoint>((resolve, reject) => {
-      httpServer.once('error', reject);
-      httpServer.listen(0, '127.0.0.1', () => {
-        const addr = httpServer.address();
-        if (!addr || typeof addr === 'string') {
-          reject(new Error('Failed to bind MCP server port'));
-          return;
-        }
-        this.server = httpServer;
-        const url = `http://127.0.0.1:${addr.port}/mcp`;
-        this.endpoint = {
-          port: addr.port,
-          token,
-          url,
-          claudeMcpAddCommand: `claude mcp add --transport http --scope user claude-browser-plus ${url} --header "Authorization: Bearer ${token}"`
+    const tryListen = (port: number): Promise<McpEndpoint> => {
+      const httpServer = makeServer();
+      return new Promise<McpEndpoint>((resolve, reject) => {
+        const onError = (err: Error): void => {
+          httpServer.removeListener('listening', onListening);
+          // best-effort cleanup so the failed server is fully torn down
+          try { httpServer.close(); } catch { /* ignore */ }
+          reject(err);
         };
-        this.output.appendLine(`MCP server listening on ${url}`);
-        resolve(this.endpoint);
+        const onListening = (): void => {
+          httpServer.removeListener('error', onError);
+          const addr = httpServer.address();
+          if (!addr || typeof addr === 'string') {
+            try { httpServer.close(); } catch { /* ignore */ }
+            reject(new Error('Failed to bind MCP server port'));
+            return;
+          }
+          this.server = httpServer;
+          const url = `http://127.0.0.1:${addr.port}/mcp`;
+          this.endpoint = {
+            port: addr.port,
+            token,
+            url,
+            claudeMcpAddCommand: `claude mcp add --transport http --scope user claude-browser-plus ${url} --header "Authorization: Bearer ${token}"`
+          };
+          this.output.appendLine(`MCP server listening on ${url}`);
+          resolve(this.endpoint);
+        };
+        httpServer.once('error', onError);
+        httpServer.once('listening', onListening);
+        httpServer.listen(port, '127.0.0.1');
       });
-    });
+    };
+
+    if (preferredPort && preferredPort > 0) {
+      try {
+        return await tryListen(preferredPort);
+      } catch (err) {
+        const m = err instanceof Error ? err.message : String(err);
+        this.output.appendLine(`Preferred port ${preferredPort} unavailable (${m}); falling back to random port`);
+      }
+    }
+    return tryListen(0);
   }
 
   async stop(): Promise<void> {

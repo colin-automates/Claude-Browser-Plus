@@ -30,7 +30,7 @@ Download `claude-browser-plus.vsix` from the [latest release](https://github.com
 
 - Open the **Extensions** view (`Ctrl+Shift+X` / `Cmd+Shift+X`).
 - Click `…` (top-right of Extensions panel) → **Install from VSIX…** → pick the file.
-- **Reload VS Code when prompted** (or run **Developer: Reload Window** from the Command Palette — `Ctrl+Shift+P` / `Cmd+Shift+P`). The extension won't activate until the window reloads.
+- VS Code may offer to reload — you can usually skip it and just open the panel directly (`Ctrl+Alt+B` / `Cmd+Alt+B`); the extension activates on first use. If activation looks stuck, run **Developer: Reload Window** from the Command Palette.
 
 ### 4. First launch
 
@@ -52,6 +52,14 @@ Three ways:
 - Command palette → **Claude Browser: Show Panel**.
 
 If the secondary side bar is hidden, toggle it via **View → Appearance → Secondary Side Bar**.
+
+### 6. Updates
+
+Once installed, the extension checks GitHub for new releases every 6 hours and updates itself silently. When an update lands, only the **extension host** restarts — your editors, terminals, and scrollback are preserved (no full window reload). The MCP port is persisted across restarts, so Claude Code stays connected.
+
+- Disable via `aiBrowser.autoUpdate = false` to opt out of background updates (you'll get a notification with an Install button instead).
+- Run **Claude Browser: Check for Updates** anytime to check manually.
+- Tweak `aiBrowser.updateCheckIntervalHours` (default 6) to change the cadence.
 
 ---
 
@@ -93,6 +101,8 @@ The 👤 button in the chrome bar toggles user control. When *off*, mouse and ke
 | `aiBrowser.screencastQuality` | `85` | JPEG quality (30–95). |
 | `aiBrowser.highRes` | `false` | Enable 2576px screenshot cap (Opus 4.x). Off = 1568px. |
 | `aiBrowser.projectHosts` | `[]` | Extra hosts treated as "your own project" (e.g. `dev.mysite.test`). Enables annotate mode. |
+| `aiBrowser.autoUpdate` | `true` | Auto-install new GitHub releases in the background. Restart is extension-host only — no window reload. |
+| `aiBrowser.updateCheckIntervalHours` | `6` | How often to poll for updates (1–168 hours). |
 
 All apply live — no reload.
 
@@ -106,6 +116,7 @@ All apply live — no reload.
 - **Claude Browser: Rotate Auth Token** — invalidate existing sessions, generate a new bearer token
 - **Claude Browser: Reset Project Profile** — wipe cookies / cache for the current workspace
 - **Claude Browser: Clear Captures** — empty `.ai-browser/captures/`
+- **Claude Browser: Check for Updates** — manually poll GitHub for a newer release
 
 ---
 

@@ -13,10 +13,14 @@ import {
 } from './claude-bridge.js';
 import { pickCoordinator, type PickResult } from './pick-coordinator.js';
 import { clearCaptures } from './captures.js';
+import { Updater } from './updater.js';
+
+const PREFERRED_PORT_KEY = 'mcp-preferred-port';
 
 let output: vscode.OutputChannel;
 let manager: BrowserManager | null = null;
 let mcp: McpHttpServer | null = null;
+let updater: Updater | null = null;
 let userControl = true;
 
 function printConnectionInfo(out: vscode.OutputChannel, command: string): void {
@@ -226,7 +230,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   context.subscriptions.push({ dispose: () => mcp?.stop() });
 
   try {
-    const endpoint = await mcp.start();
+    const preferredPort = context.globalState.get<number>(PREFERRED_PORT_KEY);
+    const endpoint = await mcp.start(preferredPort);
+    if (endpoint.port !== preferredPort) {
+      await context.globalState.update(PREFERRED_PORT_KEY, endpoint.port);
+    }
     printConnectionInfo(output, endpoint.claudeMcpAddCommand);
 
     // Auto-register with Claude Code so the user doesn't have to copy/paste anything.
@@ -361,12 +369,24 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   statusItem.command = 'aiBrowser.showPanel';
   statusItem.show();
   context.subscriptions.push(statusItem);
+
+  updater = new Updater(context, output);
+  context.subscriptions.push({ dispose: () => updater?.dispose() });
+  updater.start();
+
+  context.subscriptions.push(
+    vscode.commands.registerCommand('aiBrowser.checkForUpdates', async () => {
+      await updater?.checkForUpdates({ manual: true });
+    })
+  );
 }
 
 export async function deactivate(): Promise<void> {
   output?.appendLine('Claude Browser deactivating');
+  updater?.dispose();
   await mcp?.stop();
   await manager?.dispose();
   manager = null;
   mcp = null;
+  updater = null;
 }
