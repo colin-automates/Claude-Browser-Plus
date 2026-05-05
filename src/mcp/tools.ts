@@ -304,6 +304,26 @@ const TOOLS = [
       },
       required: ['urls']
     }
+  },
+  {
+    name: 'browser_download_page_assets',
+    description:
+      "Walk the current page's DOM and download every asset of the requested types (default: images and media). Uses the page's session for auth. Files land in <workspace>/.claude-browser/downloads/. One-shot replacement for extract_dom_resources + browser_download_assets when you want everything on the current page.",
+    inputSchema: {
+      type: 'object',
+      properties: {
+        types: {
+          type: 'array',
+          items: { type: 'string', enum: ['image', 'media', 'font', 'icon'] },
+          description: 'Resource types to download. Defaults to ["image","media"]. "link" is intentionally excluded — those are page links, not asset URLs.'
+        },
+        selector: {
+          type: 'string',
+          description: 'Optional CSS selector to scope the search to a subtree.'
+        },
+        ...tabIdProp
+      }
+    }
   }
 ];
 
@@ -789,6 +809,135 @@ async function dispatch(
         }
       }
       return ok(blocks);
+    }
+    case 'browser_download_page_assets': {
+      const rawTypes = Array.isArray(args.types) ? args.types : ['image', 'media'];
+      const allowed = new Set(['image', 'media', 'font', 'icon']);
+      const types = rawTypes
+        .filter((t): t is string => typeof t === 'string')
+        .filter((t) => allowed.has(t));
+      if (types.length === 0) {
+        return err('types must include at least one of: image, media, font, icon');
+      }
+      const selector = typeof args.selector === 'string' ? args.selector : undefined;
+
+      return browser.withPage(tabId, async (page) => {
+        // Reuse the same DOM-walk that extract_dom_resources does, but only for the
+        // requested types, returning a flat deduplicated list of URLs.
+        const urls = await page.evaluate(
+          ({ scope, kinds }: { scope: string | undefined; kinds: string[] }) => {
+            const root: Document | Element = scope
+              ? (document.querySelector(scope) ?? document)
+              : document;
+            const wantImage = kinds.includes('image');
+            const wantMedia = kinds.includes('media');
+            const wantFont = kinds.includes('font');
+            const wantIcon = kinds.includes('icon');
+            const set = new Set<string>();
+            const abs = (u: string) => {
+              try { return new URL(u, document.baseURI).href; } catch { return u; }
+            };
+
+            if (wantImage) {
+              root.querySelectorAll('img[src]').forEach((el) => {
+                const v = (el as HTMLImageElement).src;
+                if (v) set.add(abs(v));
+              });
+              root.querySelectorAll('img[srcset]').forEach((el) => {
+                const ss = (el as HTMLImageElement).srcset;
+                ss.split(',').forEach((s) => {
+                  const u = s.trim().split(/\s+/)[0];
+                  if (u) set.add(abs(u));
+                });
+              });
+              root.querySelectorAll('source[srcset]').forEach((el) => {
+                const ss = (el as HTMLSourceElement).srcset;
+                ss.split(',').forEach((s) => {
+                  const u = s.trim().split(/\s+/)[0];
+                  if (u) set.add(abs(u));
+                });
+              });
+              root.querySelectorAll<HTMLElement>('[style*="background-image"]').forEach((el) => {
+                const m = /url\((['"]?)([^'")]+)\1\)/.exec(el.style.backgroundImage);
+                if (m) set.add(abs(m[2]));
+              });
+            }
+            if (wantIcon) {
+              document
+                .querySelectorAll<HTMLLinkElement>('link[rel*="icon"]')
+                .forEach((el) => {
+                  if (el.href) set.add(el.href);
+                });
+            }
+            if (wantMedia) {
+              root.querySelectorAll<HTMLMediaElement>('video[src],audio[src]').forEach((el) => {
+                if (el.src) set.add(abs(el.src));
+              });
+              root.querySelectorAll<HTMLSourceElement>('video source,audio source').forEach((el) => {
+                if (el.src) set.add(abs(el.src));
+              });
+            }
+            if (wantFont) {
+              for (const sheet of Array.from(document.styleSheets)) {
+                try {
+                  const rules = sheet.cssRules;
+                  if (!rules) continue;
+                  for (const rule of Array.from(rules)) {
+                    const cssText = (rule as CSSRule).cssText;
+                    if (!cssText.includes('@font-face')) continue;
+                    const re = /url\((['"]?)([^'")]+)\1\)/g;
+                    let m: RegExpExecArray | null;
+                    while ((m = re.exec(cssText)) !== null) set.add(abs(m[2]));
+                  }
+                } catch {
+                  /* cross-origin stylesheet */
+                }
+              }
+            }
+            // Skip data: URIs — they're inline, no point fetching.
+            return Array.from(set).filter((u) => !u.startsWith('data:'));
+          },
+          { scope: selector, kinds: types }
+        );
+
+        if (urls.length === 0) {
+          return ok([{ type: 'text', text: `No assets found for types [${types.join(', ')}]${selector ? ` within ${selector}` : ''}.` }]);
+        }
+
+        const results: { url: string; status: 'ok' | 'error'; path?: string; size?: number; error?: string }[] = [];
+        let totalBytes = 0;
+        for (const url of urls) {
+          try {
+            const inferredName = (() => {
+              try {
+                const u = new URL(url);
+                const last = u.pathname.split('/').filter(Boolean).pop() ?? 'asset';
+                return decodeURIComponent(last) || 'asset';
+              } catch { return 'asset'; }
+            })();
+            const r = await browser.downloadAsset(tabId, url, inferredName);
+            results.push({ url, status: 'ok', path: r.savedPath, size: r.size });
+            totalBytes += r.size;
+          } catch (e) {
+            results.push({ url, status: 'error', error: e instanceof Error ? e.message : String(e) });
+          }
+        }
+
+        const okCount = results.filter((r) => r.status === 'ok').length;
+        const lines = [
+          `Page asset download (types: ${types.join(', ')})`,
+          `URL: ${page.url()}`,
+          `Found ${urls.length} asset${urls.length === 1 ? '' : 's'}; downloaded ${okCount}; failed ${urls.length - okCount}.`,
+          `Total bytes: ${(totalBytes / 1024).toFixed(1)} KB`,
+          ''
+        ];
+        for (const r of results.slice(0, 50)) {
+          if (r.status === 'ok') lines.push(`✓ ${r.path}`);
+          else lines.push(`✗ ${r.url} — ${r.error}`);
+        }
+        if (results.length > 50) lines.push(`(${results.length - 50} more rows omitted)`);
+        return ok([{ type: 'text', text: lines.join('\n') }]);
+      });
     }
     case 'browser_download_assets': {
       const raw = args.urls;
