@@ -14,7 +14,7 @@ const extensionConfig = {
   platform: 'node',
   target: 'node18',
   format: 'cjs',
-  external: ['vscode', 'playwright-core', '@modelcontextprotocol/sdk'],
+  external: ['vscode', 'playwright-core'],
   sourcemap: dev,
   minify: !dev,
   logLevel: 'info'
