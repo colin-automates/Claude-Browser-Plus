@@ -2,7 +2,7 @@
   "name": "claude-browser-plus",
   "displayName": "Claude Browser Plus",
   "description": "Live, interactive Chromium browser in a VS Code side panel, drivable by Claude Code via MCP. Pick elements, annotate localhost dev sites, and stream them back to Claude — without leaving the editor.",
-  "version": "1.5.2",
+  "version": "1.6.0",
   "publisher": "colin-automates",
   "license": "MIT",
   "private": true,
@@ -144,6 +144,11 @@
           "type": "boolean",
           "default": false,
           "markdownDescription": "When enabled, `browser_screenshot` allows up to 2576px on the long edge (Opus 4.x). Disabled = 1568px cap. Hard ceiling 8000px regardless."
+        },
+        "aiBrowser.headless": {
+          "type": "boolean",
+          "default": false,
+          "markdownDescription": "Run the embedded Chromium in headless mode (no visible OS window). The panel still mirrors the page via screencast. ⚠️ Anti-bot systems (Cloudflare, Datadome, Akamai) detect headless browsers more aggressively, so logged-in or challenge-protected sites may break. Restart the browser for this to take effect (reload the window or close and reopen the panel)."
         },
         "aiBrowser.autoUpdate": {
           "type": "boolean",

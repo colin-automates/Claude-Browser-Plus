@@ -38,6 +38,11 @@ function readScreencastSettings(): { quality: number; fps: number } {
   return { quality, fps };
 }
 
+function readHeadlessSetting(): boolean {
+  const cfg = vscode.workspace.getConfiguration('aiBrowser');
+  return cfg.get<boolean>('headless') === true;
+}
+
 function sanitizeFileName(raw: string): string {
   // Strip query strings, decode URI components, replace illegal Windows/POSIX chars.
   let name = raw.split(/[?#]/)[0];
@@ -385,6 +390,9 @@ export class BrowserManager {
       this.output.appendLine(`Profile dir: ${profile}`);
 
       const vp = { width: this.viewport.width, height: this.viewport.height };
+      const headless = readHeadlessSetting();
+      // When visible (default), park the window off-screen as the existing
+      // anti-bot strategy. When headless, position flags are ignored anyway.
       const stealthArgs = [
         `--window-position=-10000,-10000`,
         `--window-size=${vp.width},${vp.height}`,
@@ -395,14 +403,19 @@ export class BrowserManager {
       try {
         this.context = await chromium.launchPersistentContext(profile, {
           channel: this.chromeDetect.found ? 'chrome' : undefined,
-          headless: false,
+          headless,
           viewport: vp,
           args: stealthArgs,
           ignoreDefaultArgs
         });
         this.output.appendLine(
-          `Persistent context launched @ ${vp.width}×${vp.height} (${String(this.viewport.preset)}) — channel=${this.chromeDetect.found ? 'chrome' : 'chromium'}`
+          `Persistent context launched @ ${vp.width}×${vp.height} (${String(this.viewport.preset)}) — channel=${this.chromeDetect.found ? 'chrome' : 'chromium'}, headless=${headless}`
         );
+        if (headless) {
+          this.output.appendLine(
+            '[stealth] headless mode is enabled — Cloudflare / Datadome / Akamai detection will be more aggressive. Disable aiBrowser.headless if logged-in sites stop working.'
+          );
+        }
       } catch (err) {
         const msg = err instanceof Error ? err.message : String(err);
         if (/SingletonLock|ProcessSingleton/.test(msg)) {
@@ -412,7 +425,7 @@ export class BrowserManager {
           );
           const browser = await chromium.launch({
             channel: this.chromeDetect.found ? 'chrome' : undefined,
-            headless: false,
+            headless,
             args: stealthArgs,
             ignoreDefaultArgs
           });
