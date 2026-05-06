@@ -156,9 +156,11 @@ function showCanvas(): void {
 
 function updatePlaceholderVisibility(): void {
   if (!placeholderEl) return;
-  const isBlank = !lastUrl || lastUrl === 'about:blank';
-  // Show placeholder when we have no real content yet OR we're at about:blank.
-  const show = !firstFrameSeen || isBlank;
+  // Only show the empty-state placeholder before the first frame ever arrives.
+  // Once content has been seen, never re-show it — even on about:blank tabs —
+  // because the URL/frame message ordering can otherwise leave the placeholder
+  // covering a real page.
+  const show = !firstFrameSeen;
   placeholderEl.style.display = show ? '' : 'none';
   if (show) renderPlaceholderRecents();
 }
