@@ -14,19 +14,24 @@
         <button class="nav-btn" data-action="back" title="Back">◀</button>
         <button class="nav-btn" data-action="forward" title="Forward">▶</button>
         <button class="nav-btn" data-action="reload" title="Reload">⟳</button>
-        <input class="url-bar" id="url-input" type="text" placeholder="Enter URL (e.g. google.com)" spellcheck="false" autocomplete="off">
+        <input class="url-bar" id="url-input" type="text" placeholder="Enter URL (e.g. google.com)" spellcheck="false" autocomplete="off" list="url-history">
+        <datalist id="url-history"></datalist>
         <span class="own-badge" id="own-badge" hidden title="This URL is your own project — annotate mode is available">★</span>
+        <button class="nav-btn" id="nav-tab-new" title="New Tab">+</button>
         <button class="nav-btn nav-btn-toggle" id="control-toggle" data-state="on" title="Take Control: ON (click to release)">👤</button>
       </div>
-      <div class="tab-strip">
+      <div class="tab-strip" id="tab-strip" hidden>
         <div class="tab tab-empty">No tabs yet</div>
         <button class="tab-new" disabled title="New Tab">+</button>
       </div>
       <div class="action-bar">
-        <button class="action-btn" data-action="pick" id="pick-btn">Pick</button>
-        <button class="action-btn" data-action="save" id="save-btn" title="Save mode: click an image, video, or background to download it to .claude-browser/downloads/">Save</button>
-        <button class="action-btn" data-action="annotate" id="annotate-btn" disabled title="Available on your own project (localhost / file:// / configured hosts)">Annotate</button>
-        <button class="action-btn" data-action="send" id="send-btn" disabled>Send to Claude</button>
+        <div class="mode-segmented" role="radiogroup" aria-label="Browser interaction mode">
+          <button class="seg active" data-mode="default" id="mode-default" role="radio" aria-checked="true">Browse</button>
+          <button class="seg" data-mode="pick" id="mode-pick" role="radio" aria-checked="false">Pick</button>
+          <button class="seg" data-mode="save" id="mode-save" role="radio" aria-checked="false" title="Click an image, video, or background to download it to .claude-browser/downloads/">Save</button>
+          <button class="seg" data-mode="annotate" id="mode-annotate" role="radio" aria-checked="false" disabled title="Available on your own project (localhost / file:// / configured hosts)">Annotate</button>
+        </div>
+        <button class="action-btn" data-action="send" id="send-btn" hidden>Send to Claude</button>
         <span class="action-spacer"></span>
         <select class="viewport-select" id="viewport-select" title="Viewport preset">
           <option value="desktop">🖥 Desktop · 1920×1080</option>
@@ -34,10 +39,12 @@
           <option value="tablet">📱 Tablet · 768×1024</option>
           <option value="mobile">📱 Mobile · 375×667</option>
         </select>
-        <span class="volume-control" title="Page audio volume">
-          <span class="volume-icon" id="volume-icon">🔊</span>
-          <input class="volume-slider" id="volume-slider" type="range" min="0" max="100" step="1" value="100" title="Page audio volume">
-        </span>
+        <div class="volume-wrap">
+          <button class="volume-icon-btn" id="volume-icon" title="Click to adjust volume · double-click to mute" type="button">🔊</button>
+          <div class="volume-popover" id="volume-popover" hidden>
+            <input class="volume-slider" id="volume-slider" type="range" min="0" max="100" step="1" value="100" title="Page audio volume">
+          </div>
+        </div>
       </div>
       <div class="annotate-bar" id="annotate-bar" hidden>
         <button class="annotate-tool" data-tool="rect" title="Rectangle highlight">▭</button>
@@ -51,9 +58,10 @@
       </div>
     </div>
     <div class="canvas-area">
-      <div class="placeholder">
+      <div class="placeholder" id="placeholder">
         <div class="placeholder-title">Claude Browser</div>
-        <div class="placeholder-subtitle">Type a URL above and press Enter, or run "Claude Browser: Open URL…" from the command palette.</div>
+        <div class="placeholder-subtitle">Type a URL above and press Enter, or pick a recent site:</div>
+        <div class="placeholder-recents" id="placeholder-recents"></div>
         <div class="placeholder-status" id="status">Idle</div>
       </div>
       <canvas id="screencast" tabindex="0" hidden></canvas>

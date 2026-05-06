@@ -58,19 +58,21 @@ type InboundMessage =
 
 const vscodeApi = acquireVsCodeApi();
 
-const placeholderEl = document.querySelector<HTMLElement>('.placeholder');
+const placeholderEl = document.getElementById('placeholder');
+const placeholderRecentsEl = document.getElementById('placeholder-recents');
 const canvasEl = document.getElementById('screencast') as HTMLCanvasElement | null;
 const statusEl = document.getElementById('status');
 const controlModeEl = document.getElementById('control-mode');
 const viewportInfoEl = document.getElementById('viewport-info');
 const connDotEl = document.getElementById('conn-dot');
 const urlInputEl = document.getElementById('url-input') as HTMLInputElement | null;
+const urlHistoryEl = document.getElementById('url-history') as HTMLDataListElement | null;
 const controlToggleEl = document.getElementById('control-toggle') as HTMLButtonElement | null;
-const pickBtnEl = document.getElementById('pick-btn') as HTMLButtonElement | null;
+const navTabNewBtnEl = document.getElementById('nav-tab-new') as HTMLButtonElement | null;
+const tabStripEl = document.getElementById('tab-strip') as HTMLElement | null;
 const pickOverlayEl = document.getElementById('pick-overlay') as HTMLElement | null;
 const pickOutlineEl = document.getElementById('pick-outline') as HTMLElement | null;
 const ownBadgeEl = document.getElementById('own-badge') as HTMLElement | null;
-const annotateBtnEl = document.getElementById('annotate-btn') as HTMLButtonElement | null;
 const sendBtnEl = document.getElementById('send-btn') as HTMLButtonElement | null;
 const annotateBarEl = document.getElementById('annotate-bar') as HTMLElement | null;
 const annotateLayerEl = document.getElementById('annotate-layer') as HTMLElement | null;
@@ -80,11 +82,15 @@ const annotateTextFieldEl = document.getElementById('annotate-text-field') as HT
 const annotateColorEl = document.getElementById('annotate-color') as HTMLInputElement | null;
 const viewportSelectEl = document.getElementById('viewport-select') as HTMLSelectElement | null;
 const volumeSliderEl = document.getElementById('volume-slider') as HTMLInputElement | null;
-const volumeIconEl = document.getElementById('volume-icon') as HTMLElement | null;
-const saveBtnEl = document.getElementById('save-btn') as HTMLButtonElement | null;
+const volumeIconEl = document.getElementById('volume-icon') as HTMLButtonElement | null;
+const volumePopoverEl = document.getElementById('volume-popover') as HTMLElement | null;
 const saveOverlayEl = document.getElementById('save-overlay') as HTMLElement | null;
 const saveOutlineEl = document.getElementById('save-outline') as HTMLElement | null;
 const saveBannerEl = document.getElementById('save-banner') as HTMLElement | null;
+const modeDefaultBtnEl = document.getElementById('mode-default') as HTMLButtonElement | null;
+const modePickBtnEl = document.getElementById('mode-pick') as HTMLButtonElement | null;
+const modeSaveBtnEl = document.getElementById('mode-save') as HTMLButtonElement | null;
+const modeAnnotateBtnEl = document.getElementById('mode-annotate') as HTMLButtonElement | null;
 
 const ctx = canvasEl?.getContext('2d', { alpha: false }) ?? null;
 
@@ -99,8 +105,9 @@ let mouseDownButton: number | null = null;
 let lastUrl = '';
 let pickModeOn = false;
 let saveModeOn = false;
-let ownProject = false;
 let annotator: Annotator | null = null;
+type Mode = 'default' | 'pick' | 'save' | 'annotate';
+let currentMode: Mode = 'default';
 
 function setStatus(text: string): void {
   if (statusEl) statusEl.textContent = text;
@@ -118,9 +125,20 @@ function setConnected(connected: boolean): void {
 }
 function setUrlBar(url: string): void {
   if (!urlInputEl) return;
-  if (document.activeElement === urlInputEl) return;
-  urlInputEl.value = url;
+  if (document.activeElement !== urlInputEl) {
+    urlInputEl.value = url;
+  }
   lastUrl = url;
+  // Gate the own-project badge: about:blank / empty has no meaningful target.
+  if (!url || url === 'about:blank') {
+    setOwnProject(false);
+  }
+  // Push to history (excludes about:blank and empty).
+  if (url && url !== 'about:blank') {
+    addRecentUrl(url);
+  }
+  // Toggle empty-state placeholder.
+  updatePlaceholderVisibility();
 }
 function setControlState(on: boolean): void {
   controlOn = on;
@@ -132,8 +150,17 @@ function setControlState(on: boolean): void {
 }
 
 function showCanvas(): void {
-  if (placeholderEl) placeholderEl.style.display = 'none';
   if (canvasEl) canvasEl.hidden = false;
+  updatePlaceholderVisibility();
+}
+
+function updatePlaceholderVisibility(): void {
+  if (!placeholderEl) return;
+  const isBlank = !lastUrl || lastUrl === 'about:blank';
+  // Show placeholder when we have no real content yet OR we're at about:blank.
+  const show = !firstFrameSeen || isBlank;
+  placeholderEl.style.display = show ? '' : 'none';
+  if (show) renderPlaceholderRecents();
 }
 
 async function drawFrame(buf: ArrayBuffer): Promise<void> {
@@ -359,17 +386,22 @@ const SPECIAL_KEYS = new Set([
 ]);
 
 function onKeyDown(ev: KeyboardEvent): void {
+  if (ev.key === 'Escape' && isVolumePopoverOpen()) {
+    ev.preventDefault();
+    hideVolumePopover();
+    return;
+  }
   if (pickModeOn) {
     if (ev.key === 'Escape') {
       ev.preventDefault();
-      exitPickMode();
+      setMode('default');
     }
     return;
   }
   if (saveModeOn) {
     if (ev.key === 'Escape') {
       ev.preventDefault();
-      exitSaveMode();
+      setMode('default');
     }
     return;
   }
@@ -457,7 +489,6 @@ function setPickOutline(box: { x: number; y: number; width: number; height: numb
 
 function enterPickMode(): void {
   pickModeOn = true;
-  if (pickBtnEl) pickBtnEl.dataset.state = 'on';
   if (pickOverlayEl) {
     pickOverlayEl.hidden = false;
     pickOverlayEl.classList.add('active');
@@ -468,7 +499,6 @@ function enterPickMode(): void {
 
 function exitPickMode(): void {
   pickModeOn = false;
-  if (pickBtnEl) pickBtnEl.dataset.state = 'off';
   if (pickOverlayEl) {
     pickOverlayEl.hidden = true;
     pickOverlayEl.classList.remove('active');
@@ -492,12 +522,7 @@ function onPickOverlayClick(ev: MouseEvent): void {
   ev.preventDefault();
   ev.stopPropagation();
   send({ kind: 'pick', action: 'click', x: c.x, y: c.y });
-  exitPickMode();
-}
-
-function onPickButtonClick(): void {
-  if (pickModeOn) exitPickMode();
-  else enterPickMode();
+  setMode('default');
 }
 
 // ---------- Save mode (download assets) ----------
@@ -523,9 +548,7 @@ function setSaveBanner(text: string): void {
 }
 
 function enterSaveMode(): void {
-  if (pickModeOn) exitPickMode();
   saveModeOn = true;
-  if (saveBtnEl) saveBtnEl.dataset.state = 'on';
   if (saveOverlayEl) {
     saveOverlayEl.hidden = false;
     saveOverlayEl.classList.add('active');
@@ -537,7 +560,6 @@ function enterSaveMode(): void {
 
 function exitSaveMode(): void {
   saveModeOn = false;
-  if (saveBtnEl) saveBtnEl.dataset.state = 'off';
   if (saveOverlayEl) {
     saveOverlayEl.hidden = true;
     saveOverlayEl.classList.remove('active');
@@ -561,12 +583,7 @@ function onSaveOverlayClick(ev: MouseEvent): void {
   ev.preventDefault();
   ev.stopPropagation();
   send({ kind: 'saveAsset', action: 'click', x: c.x, y: c.y });
-  exitSaveMode();
-}
-
-function onSaveButtonClick(): void {
-  if (saveModeOn) exitSaveMode();
-  else enterSaveMode();
+  setMode('default');
 }
 
 interface SaveAssetHoverInfo {
@@ -592,17 +609,16 @@ function handleSaveAssetHover(info: SaveAssetHoverInfo | null): void {
 // ---------- Annotate mode (Phase 8) ----------
 
 function setOwnProject(on: boolean): void {
-  ownProject = on;
   if (ownBadgeEl) ownBadgeEl.hidden = !on;
-  if (annotateBtnEl) {
+  if (modeAnnotateBtnEl) {
     if (on) {
-      annotateBtnEl.removeAttribute('disabled');
-      annotateBtnEl.title = 'Annotate (own project)';
+      modeAnnotateBtnEl.removeAttribute('disabled');
+      modeAnnotateBtnEl.title = 'Annotate (own project)';
     } else {
-      annotateBtnEl.setAttribute('disabled', 'true');
-      annotateBtnEl.title = 'Available on your own project (localhost / file:// / configured hosts)';
-      // Auto-exit annotate mode if active
-      if (annotator?.isActive()) exitAnnotateMode();
+      modeAnnotateBtnEl.setAttribute('disabled', 'true');
+      modeAnnotateBtnEl.title = 'Available on your own project (localhost / file:// / configured hosts)';
+      // Auto-exit annotate mode if it was active.
+      if (currentMode === 'annotate') setMode('default');
     }
   }
 }
@@ -631,11 +647,8 @@ function setAnnotateToolButtonState(tool: string): void {
 function enterAnnotateMode(): void {
   const ann = ensureAnnotator();
   if (!ann) return;
-  if (pickModeOn) exitPickMode();
   ann.enter();
   if (annotateBarEl) annotateBarEl.hidden = false;
-  if (annotateBtnEl) annotateBtnEl.dataset.state = 'on';
-  if (sendBtnEl) sendBtnEl.removeAttribute('disabled');
   ann.setTool('rect');
   setAnnotateToolButtonState('rect');
   setStatus('Annotate mode — draw, then Send to Claude');
@@ -645,15 +658,7 @@ function exitAnnotateMode(): void {
   if (!annotator) return;
   annotator.exit();
   if (annotateBarEl) annotateBarEl.hidden = true;
-  if (annotateBtnEl) annotateBtnEl.dataset.state = 'off';
-  if (sendBtnEl) sendBtnEl.setAttribute('disabled', 'true');
   setStatus('Ready');
-}
-
-function onAnnotateButtonClick(): void {
-  if (!ownProject) return;
-  if (annotator?.isActive()) exitAnnotateMode();
-  else enterAnnotateMode();
 }
 
 function onAnnotateToolClick(tool: string): void {
@@ -692,12 +697,72 @@ async function onSendClick(): Promise<void> {
     viewport: snap.viewport
   });
   setStatus('Sent — see Claude Code chat');
-  exitAnnotateMode();
+  setMode('default');
+}
+
+// ---------- Persisted state ----------
+
+interface PersistedState {
+  volume?: number;
+  recentUrls?: string[];
+}
+
+const MAX_RECENT_URLS = 20;
+
+function getPersisted(): PersistedState {
+  return (vscodeApi.getState<PersistedState>() ?? {}) as PersistedState;
+}
+
+function patchPersisted(patch: Partial<PersistedState>): void {
+  vscodeApi.setState({ ...getPersisted(), ...patch });
+}
+
+// ---------- URL history ----------
+
+function getRecentUrls(): string[] {
+  const s = getPersisted();
+  return Array.isArray(s.recentUrls) ? s.recentUrls : [];
+}
+
+function addRecentUrl(url: string): void {
+  const list = getRecentUrls();
+  const filtered = list.filter((u) => u !== url);
+  filtered.unshift(url);
+  const trimmed = filtered.slice(0, MAX_RECENT_URLS);
+  patchPersisted({ recentUrls: trimmed });
+  syncUrlHistoryDatalist();
+  renderPlaceholderRecents();
+}
+
+function syncUrlHistoryDatalist(): void {
+  if (!urlHistoryEl) return;
+  urlHistoryEl.innerHTML = '';
+  for (const u of getRecentUrls()) {
+    const opt = document.createElement('option');
+    opt.value = u;
+    urlHistoryEl.appendChild(opt);
+  }
+}
+
+function renderPlaceholderRecents(): void {
+  if (!placeholderRecentsEl) return;
+  placeholderRecentsEl.innerHTML = '';
+  const recents = getRecentUrls().slice(0, 6);
+  for (const u of recents) {
+    const btn = document.createElement('button');
+    btn.className = 'placeholder-recent-btn';
+    btn.type = 'button';
+    btn.textContent = prettyUrl(u) || u;
+    btn.title = u;
+    btn.addEventListener('click', () => {
+      send({ kind: 'navigate', url: u });
+      if (urlInputEl) urlInputEl.value = u;
+    });
+    placeholderRecentsEl.appendChild(btn);
+  }
 }
 
 // ---------- Volume control ----------
-
-interface PersistedState { volume?: number }
 
 let currentVolume = 1.0; // 0..1
 let preMuteVolume = 1.0;
@@ -719,18 +784,34 @@ function setVolume(v: number, opts: { persist: boolean; send: boolean }): void {
   currentVolume = clamped;
   applyVolumeUI();
   if (opts.send) send({ kind: 'setVolume', volume: clamped });
-  if (opts.persist) {
-    const prev = (vscodeApi.getState<PersistedState>() ?? {}) as PersistedState;
-    vscodeApi.setState({ ...prev, volume: clamped });
-  }
+  if (opts.persist) patchPersisted({ volume: clamped });
 }
 
 function loadPersistedVolume(): void {
-  const state = vscodeApi.getState<PersistedState>();
-  if (state && typeof state.volume === 'number') {
+  const state = getPersisted();
+  if (typeof state.volume === 'number') {
     currentVolume = Math.max(0, Math.min(1, state.volume));
   }
   applyVolumeUI();
+}
+
+function showVolumePopover(): void {
+  if (!volumePopoverEl) return;
+  volumePopoverEl.hidden = false;
+}
+
+function hideVolumePopover(): void {
+  if (!volumePopoverEl) return;
+  volumePopoverEl.hidden = true;
+}
+
+function isVolumePopoverOpen(): boolean {
+  return !!volumePopoverEl && !volumePopoverEl.hidden;
+}
+
+function toggleVolumePopover(): void {
+  if (isVolumePopoverOpen()) hideVolumePopover();
+  else showVolumePopover();
 }
 
 function onVolumeInput(): void {
@@ -741,11 +822,63 @@ function onVolumeInput(): void {
 }
 
 function onVolumeIconClick(): void {
+  toggleVolumePopover();
+}
+
+function onVolumeIconDoubleClick(): void {
+  // Cancel any popover toggle that the first click triggered.
+  hideVolumePopover();
   if (currentVolume > 0) {
     preMuteVolume = currentVolume;
     setVolume(0, { persist: true, send: true });
   } else {
     setVolume(preMuteVolume > 0 ? preMuteVolume : 1, { persist: true, send: true });
+  }
+}
+
+// ---------- Mode dispatcher (Browse / Pick / Save / Annotate) ----------
+
+function setMode(target: Mode): void {
+  if (currentMode === target) return;
+  // Exit current mode first (always — exits cancel any pending host work).
+  if (currentMode === 'pick') exitPickMode();
+  else if (currentMode === 'save') exitSaveMode();
+  else if (currentMode === 'annotate') exitAnnotateMode();
+  currentMode = target;
+  // Enter new mode.
+  if (target === 'pick') enterPickMode();
+  else if (target === 'save') enterSaveMode();
+  else if (target === 'annotate') enterAnnotateMode();
+  syncModeSegments();
+  // Belt-and-braces: ensure annotate-bar reflects current mode (#1a fix).
+  if (annotateBarEl) annotateBarEl.hidden = target !== 'annotate';
+  // Send button only relevant in annotate mode.
+  if (sendBtnEl) {
+    sendBtnEl.hidden = target !== 'annotate';
+  }
+}
+
+function syncModeSegments(): void {
+  const map: Array<[HTMLButtonElement | null, Mode]> = [
+    [modeDefaultBtnEl, 'default'],
+    [modePickBtnEl, 'pick'],
+    [modeSaveBtnEl, 'save'],
+    [modeAnnotateBtnEl, 'annotate']
+  ];
+  for (const [btn, mode] of map) {
+    if (!btn) continue;
+    const active = mode === currentMode;
+    btn.classList.toggle('active', active);
+    btn.setAttribute('aria-checked', active ? 'true' : 'false');
+  }
+}
+
+function onModeSegmentClick(target: Mode): void {
+  // Clicking the active segment returns to default.
+  if (currentMode === target) {
+    setMode('default');
+  } else {
+    setMode(target);
   }
 }
 
@@ -789,19 +922,25 @@ function attach(): void {
     btn.addEventListener('click', () => onNavClick(action));
   });
   if (controlToggleEl) controlToggleEl.addEventListener('click', onToggleControl);
-  if (pickBtnEl) pickBtnEl.addEventListener('click', onPickButtonClick);
+  if (navTabNewBtnEl) navTabNewBtnEl.addEventListener('click', () => send({ kind: 'tab', action: 'new' }));
+  // Mode segmented control (replaces standalone Pick / Save / Annotate buttons).
+  if (modeDefaultBtnEl) modeDefaultBtnEl.addEventListener('click', () => onModeSegmentClick('default'));
+  if (modePickBtnEl) modePickBtnEl.addEventListener('click', () => onModeSegmentClick('pick'));
+  if (modeSaveBtnEl) modeSaveBtnEl.addEventListener('click', () => onModeSegmentClick('save'));
+  if (modeAnnotateBtnEl) modeAnnotateBtnEl.addEventListener('click', () => {
+    if (modeAnnotateBtnEl.disabled) return;
+    onModeSegmentClick('annotate');
+  });
   if (pickOverlayEl) {
     pickOverlayEl.addEventListener('mousemove', throttle(onPickOverlayMove, 80));
     pickOverlayEl.addEventListener('click', onPickOverlayClick);
     pickOverlayEl.addEventListener('contextmenu', (e) => e.preventDefault());
   }
-  if (saveBtnEl) saveBtnEl.addEventListener('click', onSaveButtonClick);
   if (saveOverlayEl) {
     saveOverlayEl.addEventListener('mousemove', throttle(onSaveOverlayMove, 80));
     saveOverlayEl.addEventListener('click', onSaveOverlayClick);
     saveOverlayEl.addEventListener('contextmenu', (e) => e.preventDefault());
   }
-  if (annotateBtnEl) annotateBtnEl.addEventListener('click', onAnnotateButtonClick);
   if (sendBtnEl) sendBtnEl.addEventListener('click', () => void onSendClick());
   document.querySelectorAll<HTMLElement>('.annotate-tool[data-tool]').forEach((btn) => {
     btn.addEventListener('click', () => onAnnotateToolClick(btn.dataset.tool ?? ''));
@@ -824,8 +963,22 @@ function attach(): void {
   }
   if (volumeIconEl) {
     volumeIconEl.addEventListener('click', onVolumeIconClick);
+    volumeIconEl.addEventListener('dblclick', onVolumeIconDoubleClick);
   }
+  // Close the volume popover on click-outside.
+  document.addEventListener('click', (ev) => {
+    if (!isVolumePopoverOpen()) return;
+    const target = ev.target as Node | null;
+    if (!target) return;
+    if (volumeIconEl && volumeIconEl.contains(target)) return;
+    if (volumePopoverEl && volumePopoverEl.contains(target)) return;
+    hideVolumePopover();
+  });
   loadPersistedVolume();
+  syncUrlHistoryDatalist();
+  renderPlaceholderRecents();
+  syncModeSegments();
+  updatePlaceholderVisibility();
   // Push the persisted volume to the extension so the browser starts at the right level.
   send({ kind: 'setVolume', volume: currentVolume });
 }
@@ -861,8 +1014,10 @@ function renderTabs(tabs: TabInfo[]): void {
   const active = tabs.find((t) => t.active);
   setOwnProject(!!active?.isOwnProject);
 
-  const strip = document.querySelector<HTMLElement>('.tab-strip');
+  const strip = tabStripEl;
   if (!strip) return;
+  // Hide the strip entirely when there's at most one tab (the nav-row + button covers new-tab).
+  strip.hidden = tabs.length <= 1;
   strip.innerHTML = '';
 
   if (tabs.length === 0) {
@@ -942,8 +1097,8 @@ window.addEventListener('message', (event: MessageEvent<InboundMessage>) => {
     }
     case 'pickMode': {
       const pm = msg as PickStartCommand;
-      if (pm.on && !pickModeOn) enterPickMode();
-      else if (!pm.on && pickModeOn) exitPickMode();
+      if (pm.on && currentMode !== 'pick') setMode('pick');
+      else if (!pm.on && currentMode === 'pick') setMode('default');
       break;
     }
     case 'saveAssetHover': {
