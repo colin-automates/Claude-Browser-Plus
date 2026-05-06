@@ -4,6 +4,12 @@
   padding: 0;
 }
 
+/* Force [hidden] attribute to win over any element-level `display:` rule.
+ * Without this, `.annotate-bar[hidden]` (display:flex) stays visible. */
+[hidden] {
+  display: none !important;
+}
+
 html, body {
   height: 100%;
   width: 100%;
@@ -488,8 +494,16 @@ html, body {
 }
 
 .placeholder {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
   text-align: center;
   padding: 20px;
+  background: var(--vscode-editor-background);
+  z-index: 5;
 }
 
 .placeholder-title {
